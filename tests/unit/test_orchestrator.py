@@ -24,10 +24,21 @@ class _FakeRunner:
         self.executor = executor
         self.stdout_text = stdout_text
         self.prompts: list[str] = []
+        self.image_paths: list[list[Path]] = []
 
-    def run(self, prompt: str, *, working_dir: Path, timeout_seconds: int) -> ActionResult:
+    def run(
+        self,
+        prompt: str,
+        *,
+        working_dir: Path,
+        timeout_seconds: int,
+        approval_class: ApprovalClass = ApprovalClass.USER_CONFIRM,
+        request_text: str = "",
+        image_paths: list[Path] | None = None,
+    ) -> ActionResult:
         self.prompts.append(prompt)
-        del working_dir, timeout_seconds
+        self.image_paths.append(list(image_paths or []))
+        del working_dir, timeout_seconds, approval_class, request_text
         return ActionResult(
             executor=self.executor,
             command=[self.executor, "mock"],
@@ -408,6 +419,84 @@ def test_orchestrator_voice_response_uses_persona_for_approval(tmp_path: Path) -
 
     assert "Reda" in response
     assert "network" in response
+
+
+def test_orchestrator_routes_screen_vision_request_to_codex(tmp_path: Path) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.runtime.audit_db_path = tmp_path / "dude.db"
+    screenshot_path = tmp_path / "desktop.png"
+    screenshot_path.write_bytes(b"png")
+
+    class _VisionScreenController(_FakeScreenController):
+        def get_state(self) -> dict[str, object]:
+            return {
+                "updated_at": "now",
+                "mode": "screenshot",
+                "artifact_path": str(screenshot_path),
+                "resolution": "1920x1200",
+            }
+
+    codex_runner = _FakeRunner("codex", "I can see the desktop.")
+    orchestrator = Orchestrator(
+        config,
+        logging.getLogger("test"),
+        codex_runner=codex_runner,
+        screen_controller=_VisionScreenController(),
+    )
+
+    pending = orchestrator.run_task(
+        TaskRequest(
+            text="what is on my screen right now",
+            preferred_backend=BackendKind.AUTO,
+            auto_approve=False,
+            working_dir=tmp_path,
+        )
+    )
+
+    assert pending.status == TaskStatus.APPROVAL_REQUIRED
+    result = orchestrator.approve_task(latest=True)
+    assert result.status == TaskStatus.COMPLETED
+    assert codex_runner.image_paths[-1] == [screenshot_path.resolve()]
+
+
+def test_orchestrator_routes_page_vision_request_to_codex_with_browser_screenshot(
+    tmp_path: Path,
+) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.runtime.audit_db_path = tmp_path / "dude.db"
+    browser_path = tmp_path / "browser.png"
+    browser_path.write_bytes(b"png")
+
+    class _VisionBrowserController(_FakeBrowserController):
+        def get_state(self) -> dict[str, object]:
+            return {
+                "updated_at": "now",
+                "mode": "headless",
+                "url": "https://example.com",
+                "screenshot_path": str(browser_path),
+            }
+
+    codex_runner = _FakeRunner("codex", "The page is example domain.")
+    orchestrator = Orchestrator(
+        config,
+        logging.getLogger("test"),
+        codex_runner=codex_runner,
+        browser_controller=_VisionBrowserController(),
+    )
+
+    pending = orchestrator.run_task(
+        TaskRequest(
+            text="what is on the page in the browser",
+            preferred_backend=BackendKind.AUTO,
+            auto_approve=False,
+            working_dir=tmp_path,
+        )
+    )
+
+    assert pending.status == TaskStatus.APPROVAL_REQUIRED
+    result = orchestrator.approve_task(latest=True)
+    assert result.status == TaskStatus.COMPLETED
+    assert codex_runner.image_paths[-1] == [browser_path.resolve()]
 
 
 def test_orchestrator_can_launch_downloads_folder(tmp_path: Path) -> None:

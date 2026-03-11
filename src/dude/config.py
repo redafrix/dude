@@ -169,6 +169,14 @@ class ApprovalConfig:
 
 
 @dataclass(slots=True)
+class SudoConfig:
+    enabled: bool = True
+    prompt_backend: Literal["auto", "zenity", "systemd-ask-password", "none"] = "auto"
+    helper_dir: Path | None = None
+    prompt_title: str = "Dude Sudo Required"
+
+
+@dataclass(slots=True)
 class BenchmarkConfig:
     idle_false_accept_window_seconds: int = 1800
     warm_target_first_audio_ms: int = 1500
@@ -195,6 +203,7 @@ class DudeConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     persona: PersonaConfig = field(default_factory=PersonaConfig)
     approval: ApprovalConfig = field(default_factory=ApprovalConfig)
+    sudo: SudoConfig = field(default_factory=SudoConfig)
     benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
 
 
@@ -239,6 +248,7 @@ def load_config(path: str | Path) -> DudeConfig:
     memory_raw = _get_section(raw, "memory")
     persona_raw = _get_section(raw, "persona")
     approval_raw = _get_section(raw, "approval")
+    sudo_raw = _get_section(raw, "sudo")
     benchmark_raw = _get_section(raw, "benchmark")
 
     runtime_defaults = RuntimeConfig()
@@ -375,6 +385,12 @@ def load_config(path: str | Path) -> DudeConfig:
         approval=ApprovalConfig(
             desktop_prompt=bool(approval_raw.get("desktop_prompt", True)),
             prompt_backend=str(approval_raw.get("prompt_backend", "auto")),  # type: ignore[arg-type]
+        ),
+        sudo=SudoConfig(
+            enabled=bool(sudo_raw.get("enabled", True)),
+            prompt_backend=str(sudo_raw.get("prompt_backend", "auto")),  # type: ignore[arg-type]
+            helper_dir=_resolve_path(sudo_raw.get("helper_dir"), base_dir),
+            prompt_title=str(sudo_raw.get("prompt_title", "Dude Sudo Required")),
         ),
         benchmark=BenchmarkConfig(
             idle_false_accept_window_seconds=int(

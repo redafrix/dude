@@ -118,6 +118,12 @@ approval:
   desktop_prompt: true
   prompt_backend: "auto"
 
+sudo:
+  enabled: true
+  prompt_backend: "auto"
+  helper_dir: "../runtime/sudo"
+  prompt_title: "Dude Sudo Required"
+
 benchmark:
   idle_false_accept_window_seconds: 1800
   warm_target_first_audio_ms: 1500

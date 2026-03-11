@@ -71,6 +71,7 @@ Notes:
 - The default config uses transcript wake handling: `wake_word.backend: transcript`.
 - Transcript normalization is enabled by default and is applied after ASR in the live runtime and eval paths.
 - Task routing uses deterministic local tools first, Codex as the execution backend, and Gemini as a planning-oriented secondary backend.
+- Approved sudo-class Codex tasks now use a local askpass-backed desktop prompt when a supported backend is available.
 - Browser automation prefers Playwright when installed, and falls back to Chrome headless CLI when it is not.
 - Non-safe requests return `approval_required` unless explicitly auto-approved.
 - `--extra wake` installs `openWakeWord`.
@@ -177,16 +178,19 @@ Telegram uses the same task router, approvals, memory store, and reply-audio pat
 - speaker-profile build and optional "my voice only" verification gate
 - SQLite-backed task audit log
 - Approval-classified task routing for text requests
+- askpass-backed sudo handoff for approved Codex tasks
 - deterministic local launch bootstrap for terminal, files, downloads, browser, and Discord
 - deterministic local file read/list/create/mkdir/copy/move/delete/find/search routing with explicit approvals
 - Codex execution bridge and Gemini planning bridge
 - backend prompts enriched with local memory plus current browser/screen context
 - headless browser capture with screenshot artifacts
 - browser search, page summaries, link extraction, and basic click/type automation
+- screenshot-aware Codex reasoning for current browser or desktop state
 - persisted browser state for later visibility flows
 - authenticated localhost HTTP gateway for future remote clients
 - X11 desktop screenshot and clip capture with remote artifact access
 - live remote desktop snapshots over the authenticated HTTP transport
+- continuous remote MJPEG desktop streaming over the authenticated HTTP transport
 - remote voice-note upload and local ASR task routing
 - remote reply-audio generation and playback artifacts
 - local memory summaries plus operator notes in the SQLite store

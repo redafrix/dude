@@ -26,13 +26,14 @@ The remote API is the first reusable transport layer for non-desktop access to `
   - `/screen/state` exposes the last saved desktop-capture state
   - `/browser/last-screenshot`, `/screen/latest-artifact`, and `/reply/latest-audio` expose binary artifacts
   - `/screen/live.jpg` captures a fresh live desktop frame for remote visibility
+  - `/screen/live.mjpeg` exposes a continuous live desktop stream
 
 ## Why This Shape
 
 - It creates one stable task API that later Android, Telegram, Tailscale, or PWA clients can reuse.
 - It keeps approvals and audit in one place instead of inventing a separate remote execution path.
 - It keeps task history and lightweight operator memory in the same local SQLite system of record.
-- It now supports a practical near-live visibility path without committing to a full WebRTC stack yet.
+- It now supports a practical live visibility path without committing to a full WebRTC stack yet.
 - It stays private-by-default because it binds to localhost unless explicitly reconfigured.
 
 ## Current Limits

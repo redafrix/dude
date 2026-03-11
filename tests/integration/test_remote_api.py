@@ -20,8 +20,17 @@ class _FakeRunner:
         self.executor = executor
         self.stdout_text = stdout_text
 
-    def run(self, prompt: str, *, working_dir: Path, timeout_seconds: int) -> ActionResult:
-        del prompt, working_dir, timeout_seconds
+    def run(
+        self,
+        prompt: str,
+        *,
+        working_dir: Path,
+        timeout_seconds: int,
+        approval_class=None,
+        request_text: str = "",
+        image_paths=None,
+    ) -> ActionResult:
+        del prompt, working_dir, timeout_seconds, approval_class, request_text, image_paths
         return ActionResult(
             executor=self.executor,
             command=[self.executor, "mock"],
@@ -206,6 +215,20 @@ def _request_bytes(
         return exc.code, exc.read(), exc.headers.get_content_type()
 
 
+def _request_stream_prefix(
+    url: str,
+    *,
+    token: str | None = None,
+    size: int = 512,
+) -> tuple[int, bytes, str]:
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(url, headers=headers, method="GET")
+    with urlopen(request, timeout=5) as response:
+        return response.status, response.read(size), response.headers.get_content_type()
+
+
 def test_remote_api_exposes_task_audit_and_browser_state(tmp_path: Path) -> None:
     config = load_config(Path("configs/default.yaml"))
     config.runtime.audit_db_path = tmp_path / "dude.db"
@@ -340,6 +363,14 @@ def test_remote_api_exposes_task_audit_and_browser_state(tmp_path: Path) -> None
         assert live_status == 200
         assert live_content_type == "image/jpeg"
         assert live_body == b"livejpeg"
+
+        stream_status, stream_body, stream_content_type = _request_stream_prefix(
+            f"{base_url}/screen/live.mjpeg?token={token}",
+        )
+        assert stream_status == 200
+        assert stream_content_type == "multipart/x-mixed-replace"
+        assert b"Content-Type: image/jpeg" in stream_body
+        assert b"livejpeg" in stream_body
 
         voice_status, voice_payload = _request_json(
             f"{base_url}/voice/task?backend=auto&auto_approve=true",

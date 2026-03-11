@@ -33,6 +33,7 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
   - approval classes
   - resumable approval flow
   - desktop approval prompt hook for voice-driven approval-required tasks
+  - askpass-backed sudo handoff for approved Codex tasks
 - Deterministic local desktop actions:
   - screenshot and clip capture
   - browser launch/state capture
@@ -43,11 +44,13 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
   - screenshot artifacts
   - last-browser-state reporting
   - visible-browser fallback
+  - screenshot-aware Codex reasoning over current page state
 - Desktop visibility bootstrap:
   - X11 screenshot capture
   - short screen clip capture
   - remote screen artifact endpoint
   - live remote screenshot refresh endpoint
+  - continuous remote MJPEG screen stream
 - Remote transport foundation:
   - authenticated local HTTP API
   - `/task`, `/approve`, `/audit`, `/browser/state`
@@ -113,13 +116,16 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
 - Screen visibility:
   - screenshot and short clip artifacts exist
   - live snapshot refresh now exists
-  - true low-latency continuous screen sharing is still not implemented
+  - continuous MJPEG live sharing now exists
+  - full WebRTC-grade call/screen sharing is still not implemented
 - Vision:
   - screenshot artifact flow exists
-  - richer image reasoning attachment is not finished
+  - screenshot-aware Codex reasoning attachment now exists
+  - richer local multimodal reasoning is not finished
 - Approval UX:
   - CLI, voice resume, and desktop approval prompting exist
-  - sudo handoff and richer approval policies are not finished
+  - askpass-backed sudo handoff now exists
+  - richer approval policies are still not finished
 
 ## Not Done Yet
 
@@ -129,7 +135,6 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
 - WebRTC live conversation / live screen share
 - richer screen recording / clip delivery UX
 - Full local multimodal reasoning path
-- Sudo prompt handoff window flow
 
 ## Current Next Priorities
 

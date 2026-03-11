@@ -12,6 +12,9 @@ The approval system now has a user-facing layer on top of the underlying audit a
   - if a voice-triggered task requires approval, the service can trigger a desktop prompt
   - `zenity` is preferred when available
   - `notify-send` is used as a fallback notification path
+- Sudo path:
+  - approved sudo-class Codex tasks now get an askpass-backed desktop password prompt
+  - the backend can continue after the local sudo handoff instead of failing in a non-interactive shell
 - Remote path:
   - HTTP and PWA clients still use explicit `/approve`
   - Telegram still uses explicit chat-driven approval flow
@@ -24,6 +27,5 @@ The approval system now has a user-facing layer on top of the underlying audit a
 
 ## Current Limits
 
-- This is not yet a sudo credential handoff.
 - Prompting is desktop-environment dependent.
 - There is no richer approval policy editor yet.

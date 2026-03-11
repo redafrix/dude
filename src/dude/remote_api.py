@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from mimetypes import guess_type
@@ -167,11 +168,29 @@ class RemoteApiServer:
             return
 
         if not self._is_authorized(handler.headers.get("Authorization")):
-            self._write_json(
-                handler,
-                HTTPStatus.UNAUTHORIZED,
-                {"ok": False, "error": "Unauthorized"},
-            )
+            if not (
+                parsed.path == "/screen/live.mjpeg"
+                and self._is_authorized(
+                    handler.headers.get("Authorization"),
+                    token=query.get("token", [""])[0],
+                )
+            ):
+                self._write_json(
+                    handler,
+                    HTTPStatus.UNAUTHORIZED,
+                    {"ok": False, "error": "Unauthorized"},
+                )
+                return
+
+        if parsed.path == "/screen/live.mjpeg" and method == "GET":
+            try:
+                self._write_live_mjpeg(handler, query)
+            except RuntimeError as exc:
+                self._write_json(
+                    handler,
+                    HTTPStatus.BAD_REQUEST,
+                    {"ok": False, "error": str(exc)},
+                )
             return
 
         try:
@@ -399,8 +418,10 @@ class RemoteApiServer:
             return artifact_path.read_bytes(), content_type
         return None
 
-    def _is_authorized(self, header: str | None) -> bool:
+    def _is_authorized(self, header: str | None, *, token: str | None = None) -> bool:
         expected = self.ensure_auth_token()
+        if token and secrets.compare_digest(token.strip(), expected):
+            return True
         if not header or not header.startswith("Bearer "):
             return False
         token = header.removeprefix("Bearer ").strip()
@@ -459,3 +480,38 @@ class RemoteApiServer:
         handler.send_header("Content-Length", str(len(payload)))
         handler.end_headers()
         handler.wfile.write(payload)
+
+    def _write_live_mjpeg(
+        self,
+        handler: BaseHTTPRequestHandler,
+        query: dict[str, list[str]],
+    ) -> None:
+        interval_ms = int(query.get("interval_ms", ["450"])[0])
+        interval_ms = max(200, min(interval_ms, 5000))
+        boundary = "frame"
+        handler.send_response(int(HTTPStatus.OK))
+        handler.send_header(
+            "Content-Type",
+            f"multipart/x-mixed-replace; boundary={boundary}",
+        )
+        handler.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        handler.end_headers()
+
+        while True:
+            payload, content_type = self.orchestrator.screen.capture_screenshot_bytes(
+                Path.cwd(),
+                image_format="jpeg",
+            )
+            part_header = (
+                f"--{boundary}\r\n"
+                f"Content-Type: {content_type}\r\n"
+                f"Content-Length: {len(payload)}\r\n\r\n"
+            ).encode("utf-8")
+            try:
+                handler.wfile.write(part_header)
+                handler.wfile.write(payload)
+                handler.wfile.write(b"\r\n")
+                handler.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                break
+            time.sleep(interval_ms / 1000)

@@ -19,6 +19,7 @@ from dude.files import FileController
 from dude.logging import log_event
 from dude.persona import PersonaController
 from dude.screen import ScreenCaptureController
+from dude.sudo import SudoController
 
 
 class BackendKind(str, Enum):
@@ -111,12 +112,16 @@ class BackendRunner(Protocol):
         *,
         working_dir: Path,
         timeout_seconds: int,
+        approval_class: ApprovalClass = ApprovalClass.USER_CONFIRM,
+        request_text: str = "",
+        image_paths: list[Path] | None = None,
     ) -> ActionResult: ...
 
 
 class CodexRunner:
     def __init__(self, config: DudeConfig) -> None:
         self.config = config
+        self.sudo = SudoController(config)
 
     def run(
         self,
@@ -124,9 +129,25 @@ class CodexRunner:
         *,
         working_dir: Path,
         timeout_seconds: int,
+        approval_class: ApprovalClass = ApprovalClass.USER_CONFIRM,
+        request_text: str = "",
+        image_paths: list[Path] | None = None,
     ) -> ActionResult:
         with tempfile.TemporaryDirectory(prefix="dude-codex-") as tmp_dir:
             last_message_path = Path(tmp_dir) / "last-message.txt"
+            sandbox = (
+                "danger-full-access"
+                if approval_class != ApprovalClass.SAFE_LOCAL
+                else self.config.orchestrator.codex_sandbox
+            )
+            env = None
+            if approval_class == ApprovalClass.SUDO:
+                env = self.sudo.prepare_environment(request_text)
+                if not env:
+                    raise RuntimeError(
+                        "Sudo tasks require a desktop askpass backend. "
+                        "Install `zenity` or `systemd-ask-password`, or disable sudo handoff."
+                    )
             command = ["codex"]
             if self.config.orchestrator.codex_model:
                 command.extend(["-m", self.config.orchestrator.codex_model])
@@ -135,22 +156,26 @@ class CodexRunner:
                     "-a",
                     "never",
                     "-s",
-                    self.config.orchestrator.codex_sandbox,
+                    sandbox,
                     "exec",
                     "--skip-git-repo-check",
                     "--color",
                     "never",
                     "--output-last-message",
                     str(last_message_path),
-                    prompt,
                 ]
             )
+            for image_path in image_paths or []:
+                if image_path.exists():
+                    command.extend(["-i", str(image_path)])
+            command.append(prompt)
             completed = subprocess.run(
                 command,
                 cwd=working_dir,
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
+                env=env,
             )
             output_text = (
                 last_message_path.read_text(encoding="utf-8").strip()
@@ -176,7 +201,11 @@ class GeminiRunner:
         *,
         working_dir: Path,
         timeout_seconds: int,
+        approval_class: ApprovalClass = ApprovalClass.USER_CONFIRM,
+        request_text: str = "",
+        image_paths: list[Path] | None = None,
     ) -> ActionResult:
+        del approval_class, request_text, image_paths
         command = [
             "gemini",
             "-p",
@@ -408,6 +437,31 @@ class Orchestrator:
                 "screen_state",
                 "screen_state",
             )
+        vision_tokens = (
+            "what is on my screen",
+            "what's on my screen",
+            "what do you see on my screen",
+            "what do you see on the screen",
+            "analyze the screenshot",
+            "inspect the screenshot",
+            "describe the screenshot",
+            "analyze the screen",
+            "inspect the screen",
+            "describe the screen",
+            "what is on the page",
+            "what do you see on the page",
+            "analyze the page",
+            "inspect the page",
+            "describe the page",
+            "look at the page",
+            "look at the screen",
+        )
+        if any(token in lowered for token in vision_tokens):
+            return RouteDecision(
+                BackendKind.CODEX if forced_backend == BackendKind.AUTO else forced_backend,
+                ApprovalClass.USER_CONFIRM,
+                "vision_request",
+            )
         package_tokens = ("sudo", "apt ", "apt-get", "dnf ", "pacman ", "install ")
         if any(token in lowered for token in package_tokens):
             return RouteDecision(
@@ -622,10 +676,14 @@ class Orchestrator:
                 action = self._run_local_tool(decision.local_tool, request.text, working_dir)
             elif decision.backend == BackendKind.CODEX:
                 prompt = self._build_backend_prompt(request.text, decision)
+                image_paths = self._collect_vision_attachments(decision, request.text, working_dir)
                 action = self.codex_runner.run(
                     prompt,
                     working_dir=working_dir,
                     timeout_seconds=self.config.orchestrator.task_timeout_seconds,
+                    approval_class=decision.approval_class,
+                    request_text=request.text,
+                    image_paths=image_paths,
                 )
             elif decision.backend == BackendKind.GEMINI:
                 prompt = self._build_backend_prompt(request.text, decision, plan_only=True)
@@ -633,6 +691,9 @@ class Orchestrator:
                     prompt,
                     working_dir=working_dir,
                     timeout_seconds=self.config.orchestrator.task_timeout_seconds,
+                    approval_class=decision.approval_class,
+                    request_text=request.text,
+                    image_paths=None,
                 )
             else:
                 raise RuntimeError(f"Unsupported backend: {decision.backend.value}")
@@ -909,6 +970,17 @@ class Orchestrator:
             if runtime_context
             else ""
         )
+        sudo_block = (
+            "If privilege escalation is required, standard `sudo` is available through "
+            "a local askpass-backed desktop prompt.\n"
+            if decision.approval_class == ApprovalClass.SUDO
+            else ""
+        )
+        vision_block = (
+            "If screenshots are attached, use them as the primary source of truth for UI state.\n"
+            if decision.route_reason == "vision_request"
+            else ""
+        )
         return (
             "You are Dude's execution backend.\n"
             f"Task: {request_text}\n"
@@ -916,9 +988,54 @@ class Orchestrator:
             f"Route reason: {decision.route_reason}\n"
             f"{memory_block}"
             f"{runtime_block}"
+            f"{sudo_block}"
+            f"{vision_block}"
             f"{mode}\n"
             "Return a concise result summary."
         )
+
+    def _collect_vision_attachments(
+        self,
+        decision: RouteDecision,
+        request_text: str,
+        working_dir: Path,
+    ) -> list[Path]:
+        if decision.route_reason != "vision_request":
+            return []
+        lowered = request_text.lower()
+        attachments: list[Path] = []
+        if any(token in lowered for token in ("page", "browser", "site", "web")):
+            browser_state = self.browser.get_state() or {}
+            screenshot_path = str(browser_state.get("screenshot_path", "")).strip()
+            if screenshot_path:
+                path = Path(screenshot_path)
+                if path.exists():
+                    attachments.append(path)
+        if any(token in lowered for token in ("screen", "desktop", "screenshot")):
+            screen_state = self.screen.get_state() or {}
+            artifact_path = str(screen_state.get("artifact_path", "")).strip()
+            if artifact_path:
+                path = Path(artifact_path)
+                if path.exists():
+                    attachments.append(path)
+            if not attachments:
+                capture = self.screen.capture_screenshot(working_dir)
+                if capture.exit_code == 0:
+                    screen_state = self.screen.get_state() or {}
+                    artifact_path = str(screen_state.get("artifact_path", "")).strip()
+                    if artifact_path:
+                        path = Path(artifact_path)
+                        if path.exists():
+                            attachments.append(path)
+        unique: list[Path] = []
+        seen: set[Path] = set()
+        for attachment in attachments:
+            resolved = attachment.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            unique.append(resolved)
+        return unique
 
     def _record_task_memory(self, result: TaskResult) -> None:
         if not self.config.memory.enabled:

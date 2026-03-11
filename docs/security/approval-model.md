@@ -19,9 +19,9 @@ Current behavior:
 - Gemini is currently wired as a planning-oriented backend, not the primary mutation engine.
 - Browser-state lookup is currently `safe_local`.
 - Browser navigation to external URLs is currently treated as `network`.
+- Approved `sudo` Codex tasks now use a local askpass-backed sudo wrapper.
 
 Not solved yet:
 
-- no voice-native approval UX exists yet
-- no sudo prompt handoff exists yet
 - no per-policy allowlist/denylist config exists yet
+- no richer multi-step policy editor exists yet

@@ -330,7 +330,6 @@ def render_remote_app_html() -> str:
     const memoryNote = document.getElementById("memoryNote");
     const memoryList = document.getElementById("memoryList");
     const voiceReply = document.getElementById("voiceReply");
-    let liveScreenTimer = null;
     let activeRecorder = null;
     let activeStream = null;
     let activeChunks = [];
@@ -475,39 +474,27 @@ def render_remote_app_html() -> str:
       }
     }
 
-    async function refreshLiveScreenFrame() {
-      try {
-        const token = tokenInput.value.trim();
-        const response = await fetch("/screen/live.jpg", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const blob = await response.blob();
-        screenShot.src = URL.createObjectURL(blob);
-        screenShot.style.display = "block";
-        screenVideo.removeAttribute("src");
-        screenVideo.style.display = "none";
-      } catch (error) {
-        stopLiveScreen();
-        taskResult.textContent = `Live screen failed: ${String(error.message || error)}`;
-      }
-    }
-
     async function startLiveScreen() {
       stopLiveScreen(false);
-      taskResult.textContent = "Starting live screen view...";
-      await refreshLiveScreenFrame();
-      liveScreenTimer = window.setInterval(refreshLiveScreenFrame, 1200);
+      const token = tokenInput.value.trim();
+      if (!token) {
+        throw new Error("Enter the remote token first.");
+      }
+      const streamUrl = `/screen/live.mjpeg?token=${encodeURIComponent(token)}&ts=${Date.now()}`;
+      screenShot.onerror = () => {
+        stopLiveScreen(false);
+        taskResult.textContent = "Live screen stream failed.";
+      };
+      screenShot.src = streamUrl;
+      screenShot.style.display = "block";
+      screenVideo.removeAttribute("src");
+      screenVideo.style.display = "none";
+      taskResult.textContent = "Live screen stream started.";
     }
 
     function stopLiveScreen(updateStatus = true) {
-      if (liveScreenTimer !== null) {
-        window.clearInterval(liveScreenTimer);
-        liveScreenTimer = null;
-      }
+      screenShot.onerror = null;
+      screenShot.removeAttribute("src");
       if (updateStatus) {
         taskResult.textContent = "Live screen view stopped.";
       }
