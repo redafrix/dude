@@ -59,6 +59,10 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
   - optional voice replies
   - screenshot/browser artifact replies
   - allowed-chat authorization
+- Public repo foundation:
+  - public GitHub repo created
+  - root contribution, security, and changelog docs
+  - CI workflow scaffold
 
 ## Partial
 
@@ -110,7 +114,6 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
 - richer screen recording / clip delivery UX
 - Full local multimodal reasoning path
 - Sudo prompt handoff window flow
-- Public GitHub repo initialization/publish step
 
 ## Current Next Priorities
 
