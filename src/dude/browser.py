@@ -25,6 +25,8 @@ class BrowserRequest:
     headed: bool
     capture_screenshot: bool
     show_state_only: bool
+    target_text: str | None = None
+    input_text: str | None = None
 
 
 @dataclass(slots=True)
@@ -99,11 +101,29 @@ def parse_browser_request(
         text,
         flags=re.IGNORECASE,
     )
+    click_match = re.search(
+        (
+            r"\bclick\b(?:\s+the)?(?:\s+(?:link|button))?\s+[\"'“”]?(.+?)[\"'“”]?"
+            r"(?:\s+on the page|\s+in the browser)?$"
+        ),
+        text.strip(),
+        flags=re.IGNORECASE,
+    )
+    type_match = re.search(
+        (
+            r"\b(?:type|enter|fill)\b\s+[\"'“”](.+?)[\"'“”]\s+"
+            r"(?:into|in)\s+[\"'“”](.+?)[\"'“”](?:\s+on the page|\s+in the browser)?$"
+        ),
+        text.strip(),
+        flags=re.IGNORECASE,
+    )
 
     show_state_only = any(phrase in lowered for phrase in show_state_phrases)
     headed = any(phrase in lowered for phrase in headed_phrases)
     url = extract_url(text)
     action = "open"
+    target_text: str | None = None
+    input_text: str | None = None
 
     if search_match:
         query = search_match.group(1).strip().rstrip(".")
@@ -112,6 +132,13 @@ def parse_browser_request(
                 "https://www.google.com/search?q="
                 + urllib.parse.quote_plus(query)
             )
+    elif type_match:
+        action = "type"
+        input_text = type_match.group(1).strip()
+        target_text = type_match.group(2).strip().rstrip(".")
+    elif click_match:
+        action = "click"
+        target_text = click_match.group(1).strip().rstrip(".")
     elif any(phrase in lowered for phrase in summarize_phrases):
         action = "summarize"
     elif any(phrase in lowered for phrase in link_phrases):
@@ -124,6 +151,8 @@ def parse_browser_request(
             headed=False,
             capture_screenshot=False,
             show_state_only=True,
+            target_text=None,
+            input_text=None,
         )
 
     capture_screenshot = any(phrase in lowered for phrase in screenshot_phrases)
@@ -139,6 +168,8 @@ def parse_browser_request(
         headed=headed,
         capture_screenshot=capture_screenshot,
         show_state_only=False,
+        target_text=target_text,
+        input_text=input_text,
     )
 
 
@@ -226,6 +257,10 @@ class BrowserController:
             return self._summarize_page(request, working_dir)
         if request.action == "links":
             return self._extract_links(request, working_dir)
+        if request.action == "click":
+            return self._click_page_target(request)
+        if request.action == "type":
+            return self._type_into_page_target(request)
         if request.url is None:
             return BrowserToolResult(
                 executor="browser",
@@ -295,6 +330,70 @@ class BrowserController:
                 )
 
         return self._capture_with_chrome_cli(url, working_dir)
+
+    def _click_page_target(self, request: BrowserRequest) -> BrowserToolResult:
+        url = self._resolve_url_for_request(request)
+        if url is None:
+            return BrowserToolResult(
+                executor="browser",
+                command=[],
+                exit_code=1,
+                stdout_text="",
+                stderr_text="No browser page is available to click yet.",
+            )
+        target_text = (request.target_text or "").strip()
+        if not target_text:
+            return BrowserToolResult(
+                executor="browser",
+                command=[],
+                exit_code=1,
+                stdout_text="",
+                stderr_text="No click target was found in the browser request.",
+            )
+        try:
+            return self._click_with_playwright(
+                url,
+                target_text=target_text,
+                capture_screenshot=request.capture_screenshot,
+            )
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Playwright is required for browser click automation. "
+                "Install it with `uv sync --extra browser`."
+            ) from exc
+
+    def _type_into_page_target(self, request: BrowserRequest) -> BrowserToolResult:
+        url = self._resolve_url_for_request(request)
+        if url is None:
+            return BrowserToolResult(
+                executor="browser",
+                command=[],
+                exit_code=1,
+                stdout_text="",
+                stderr_text="No browser page is available to type into yet.",
+            )
+        field_target = (request.target_text or "").strip()
+        input_text = request.input_text or ""
+        if not field_target or not input_text:
+            return BrowserToolResult(
+                executor="browser",
+                command=[],
+                exit_code=1,
+                stdout_text="",
+                stderr_text="Browser typing requires both input text and a target field.",
+            )
+        try:
+            return self._type_with_playwright(
+                url,
+                field_target=field_target,
+                input_text=input_text,
+                capture_screenshot=request.capture_screenshot,
+            )
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Playwright is required for browser typing automation. "
+                "Install it with `uv sync --extra browser`."
+            ) from exc
 
     def _summarize_page(self, request: BrowserRequest, working_dir: Path) -> BrowserToolResult:
         url = self._resolve_url_for_request(request)
@@ -495,6 +594,201 @@ class BrowserController:
             command=command,
             exit_code=None,
             stdout_text=f"Opened a visible browser window to {url}.",
+            stderr_text="",
+        )
+
+    def _click_with_playwright(
+        self,
+        url: str,
+        *,
+        target_text: str,
+        capture_screenshot: bool,
+    ) -> BrowserToolResult:
+        sync_api = importlib.import_module("playwright.sync_api")
+        chrome_path = self._find_chrome_path()
+        screenshot_path = self._next_screenshot_path(url) if capture_screenshot else None
+        command = ["playwright", "click", target_text]
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True,
+                executable_path=str(chrome_path) if chrome_path is not None else None,
+            )
+            context = browser.new_context(
+                viewport={
+                    "width": self.browser_config.viewport_width,
+                    "height": self.browser_config.viewport_height,
+                }
+            )
+            page = context.new_page()
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=self.browser_config.navigation_timeout_ms,
+            )
+            page.wait_for_timeout(self.browser_config.settle_time_ms)
+
+            locator = None
+            name_pattern = re.compile(re.escape(target_text), re.IGNORECASE)
+            candidate_locators = [
+                page.get_by_role("link", name=name_pattern).first,
+                page.get_by_role("button", name=name_pattern).first,
+                page.get_by_text(target_text, exact=False).first,
+            ]
+            last_error = "No clickable target matched."
+            for candidate in candidate_locators:
+                try:
+                    candidate.wait_for(state="visible", timeout=1500)
+                    locator = candidate
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_error = str(exc)
+            if locator is None:
+                browser.close()
+                return BrowserToolResult(
+                    executor="browser",
+                    command=command,
+                    exit_code=1,
+                    stdout_text="",
+                    stderr_text=(
+                        f"Could not find a clickable target for '{target_text}'. "
+                        f"{last_error}"
+                    ),
+                )
+
+            locator.click(timeout=self.browser_config.navigation_timeout_ms)
+            page.wait_for_timeout(self.browser_config.settle_time_ms)
+            if screenshot_path is not None:
+                page.screenshot(path=str(screenshot_path), full_page=True)
+            title = page.title()
+            current_url = page.url
+            excerpt = " ".join(page.locator("body").inner_text().split())[:800].strip()
+            browser.close()
+
+        self._save_state(
+            {
+                "updated_at": _utc_now(),
+                "mode": "headless",
+                "engine": "playwright",
+                "url": current_url,
+                "title": title,
+                "screenshot_path": str(screenshot_path) if screenshot_path is not None else None,
+                "page_excerpt": excerpt,
+                "last_action": "click",
+                "last_target_text": target_text,
+            }
+        )
+        message = f"Clicked '{target_text}' on {url}."
+        if current_url != url:
+            message += f" Current page: {current_url}."
+        if title:
+            message += f" Title: {title}."
+        if screenshot_path is not None:
+            message += f" Screenshot: {screenshot_path}."
+        return BrowserToolResult(
+            executor="browser",
+            command=command,
+            exit_code=0,
+            stdout_text=message,
+            stderr_text="",
+        )
+
+    def _type_with_playwright(
+        self,
+        url: str,
+        *,
+        field_target: str,
+        input_text: str,
+        capture_screenshot: bool,
+    ) -> BrowserToolResult:
+        sync_api = importlib.import_module("playwright.sync_api")
+        chrome_path = self._find_chrome_path()
+        screenshot_path = self._next_screenshot_path(url) if capture_screenshot else None
+        command = ["playwright", "type", field_target]
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True,
+                executable_path=str(chrome_path) if chrome_path is not None else None,
+            )
+            context = browser.new_context(
+                viewport={
+                    "width": self.browser_config.viewport_width,
+                    "height": self.browser_config.viewport_height,
+                }
+            )
+            page = context.new_page()
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=self.browser_config.navigation_timeout_ms,
+            )
+            page.wait_for_timeout(self.browser_config.settle_time_ms)
+
+            locator = None
+            name_pattern = re.compile(re.escape(field_target), re.IGNORECASE)
+            candidate_locators = [
+                page.get_by_label(name_pattern).first,
+                page.get_by_placeholder(name_pattern).first,
+                page.get_by_role("textbox", name=name_pattern).first,
+                page.locator(
+                    f"input[name='{field_target}'], textarea[name='{field_target}']"
+                ).first,
+            ]
+            last_error = "No editable field matched."
+            for candidate in candidate_locators:
+                try:
+                    candidate.wait_for(state="visible", timeout=1500)
+                    locator = candidate
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_error = str(exc)
+            if locator is None:
+                browser.close()
+                return BrowserToolResult(
+                    executor="browser",
+                    command=command,
+                    exit_code=1,
+                    stdout_text="",
+                    stderr_text=(
+                        f"Could not find an editable field for '{field_target}'. "
+                        f"{last_error}"
+                    ),
+                )
+
+            locator.fill(input_text, timeout=self.browser_config.navigation_timeout_ms)
+            page.wait_for_timeout(self.browser_config.settle_time_ms)
+            if screenshot_path is not None:
+                page.screenshot(path=str(screenshot_path), full_page=True)
+            title = page.title()
+            current_url = page.url
+            excerpt = " ".join(page.locator("body").inner_text().split())[:800].strip()
+            browser.close()
+
+        self._save_state(
+            {
+                "updated_at": _utc_now(),
+                "mode": "headless",
+                "engine": "playwright",
+                "url": current_url,
+                "title": title,
+                "screenshot_path": str(screenshot_path) if screenshot_path is not None else None,
+                "page_excerpt": excerpt,
+                "last_action": "type",
+                "last_target_text": field_target,
+                "last_input_text": input_text,
+            }
+        )
+        message = f"Entered text into '{field_target}' on {url}."
+        if current_url != url:
+            message += f" Current page: {current_url}."
+        if title:
+            message += f" Title: {title}."
+        if screenshot_path is not None:
+            message += f" Screenshot: {screenshot_path}."
+        return BrowserToolResult(
+            executor="browser",
+            command=command,
+            exit_code=0,
+            stdout_text=message,
             stderr_text="",
         )
 

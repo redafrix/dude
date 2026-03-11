@@ -14,6 +14,7 @@ from dude.eval import (
     evaluate_fixtures,
     evaluate_pipeline,
     record_fixture,
+    record_scenario_corpus,
     record_wake_enrollment,
     write_named_report,
 )
@@ -22,6 +23,7 @@ from dude.orchestrator import BackendKind, Orchestrator, TaskRequest
 from dude.remote_api import RemoteApiServer
 from dude.screen import ScreenCaptureController
 from dude.service import run_service
+from dude.tailscale import TailscaleController
 from dude.telegram_bot import build_telegram_service
 
 
@@ -62,6 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_serve.add_argument("--verbose", action="store_true")
     telegram_serve.add_argument("--once", action="store_true")
 
+    tailscale_serve = subparsers.add_parser(
+        "tailscale-serve",
+        help="Expose the remote API over Tailscale Serve.",
+    )
+    tailscale_group = tailscale_serve.add_mutually_exclusive_group()
+    tailscale_group.add_argument("--status", action="store_true")
+    tailscale_group.add_argument("--reset", action="store_true")
+
     for name in ("arm", "disarm", "status", "shutdown"):
         subparsers.add_parser(name, help=f"{name.title()} the running service.")
 
@@ -99,6 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
     enroll.add_argument("--phrase", default="dude")
     enroll.add_argument("--count", type=int, default=12)
     enroll.add_argument("--seconds", type=float, default=1.8)
+
+    corpus = subparsers.add_parser(
+        "record-corpus",
+        help="Record a guided voice corpus and emit an evaluation manifest.",
+    )
+    corpus.add_argument("--output-dir", type=Path, required=True)
+    corpus.add_argument("--profile", default="m1-core")
+    corpus.add_argument("--takes", type=int, default=1)
+    corpus.add_argument("--quiet", action="store_true")
 
     evaluate = subparsers.add_parser(
         "eval-fixtures",
@@ -226,6 +245,30 @@ def main() -> int:
         except KeyboardInterrupt:
             return 130
 
+    if args.command == "tailscale-serve":
+        config, logger = _load(config_path)
+        del logger
+        controller = TailscaleController(config)
+        if args.reset:
+            result = controller.reset_serve()
+        elif args.status:
+            result = controller.serve_status()
+        else:
+            result = controller.serve_remote_api()
+        print(
+            json.dumps(
+                {
+                    "command": result.command,
+                    "exit_code": result.exit_code,
+                    "stdout_text": result.stdout_text,
+                    "stderr_text": result.stderr_text,
+                    "url": result.url,
+                },
+                indent=2,
+            )
+        )
+        return 0 if result.exit_code == 0 else 1
+
     config, logger = _load(config_path)
     if args.command == "benchmark":
         payload = benchmark_backends(
@@ -251,6 +294,19 @@ def main() -> int:
                 phrase=args.phrase,
                 take_count=args.count,
                 duration_seconds=args.seconds,
+            )
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if args.command == "record-corpus":
+        payload = asyncio.run(
+            record_scenario_corpus(
+                config,
+                args.output_dir,
+                profile=args.profile,
+                takes_per_prompt=args.takes,
+                announce=not args.quiet,
             )
         )
         print(json.dumps(payload, indent=2))

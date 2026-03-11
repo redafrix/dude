@@ -144,6 +144,18 @@ class MemoryConfig:
 
 
 @dataclass(slots=True)
+class PersonaConfig:
+    mode: Literal["neutral", "witty", "narcissistic"] = "neutral"
+    operator_name: str = "Reda"
+
+
+@dataclass(slots=True)
+class ApprovalConfig:
+    desktop_prompt: bool = True
+    prompt_backend: Literal["auto", "zenity", "notify-send", "none"] = "auto"
+
+
+@dataclass(slots=True)
 class BenchmarkConfig:
     idle_false_accept_window_seconds: int = 1800
     warm_target_first_audio_ms: int = 1500
@@ -167,6 +179,8 @@ class DudeConfig:
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    persona: PersonaConfig = field(default_factory=PersonaConfig)
+    approval: ApprovalConfig = field(default_factory=ApprovalConfig)
     benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
 
 
@@ -208,6 +222,8 @@ def load_config(path: str | Path) -> DudeConfig:
     screen_raw = _get_section(raw, "screen")
     telegram_raw = _get_section(raw, "telegram")
     memory_raw = _get_section(raw, "memory")
+    persona_raw = _get_section(raw, "persona")
+    approval_raw = _get_section(raw, "approval")
     benchmark_raw = _get_section(raw, "benchmark")
 
     runtime_defaults = RuntimeConfig()
@@ -322,6 +338,14 @@ def load_config(path: str | Path) -> DudeConfig:
             enabled=bool(memory_raw.get("enabled", True)),
             max_entries=int(memory_raw.get("max_entries", 200)),
             summary_max_chars=int(memory_raw.get("summary_max_chars", 280)),
+        ),
+        persona=PersonaConfig(
+            mode=str(persona_raw.get("mode", "neutral")),  # type: ignore[arg-type]
+            operator_name=str(persona_raw.get("operator_name", "Reda")),
+        ),
+        approval=ApprovalConfig(
+            desktop_prompt=bool(approval_raw.get("desktop_prompt", True)),
+            prompt_backend=str(approval_raw.get("prompt_backend", "auto")),  # type: ignore[arg-type]
         ),
         benchmark=BenchmarkConfig(
             idle_false_accept_window_seconds=int(

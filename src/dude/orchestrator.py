@@ -15,7 +15,9 @@ from typing import Protocol
 from dude.audit import AuditStore
 from dude.browser import BrowserController
 from dude.config import DudeConfig
+from dude.files import FileController
 from dude.logging import log_event
+from dude.persona import PersonaController
 from dude.screen import ScreenCaptureController
 
 
@@ -227,6 +229,8 @@ class Orchestrator:
         self.gemini_runner = gemini_runner or GeminiRunner(config)
         self.browser = browser_controller or BrowserController(config, logger)
         self.screen = screen_controller or ScreenCaptureController(config, logger)
+        self.files = FileController()
+        self.persona = PersonaController(config.persona)
 
     def classify_request(self, text: str, preferred_backend: BackendKind) -> RouteDecision:
         lowered = text.lower()
@@ -262,6 +266,92 @@ class Orchestrator:
             )
         if any(token in lowered for token in ("pwd", "current directory", "where am i")):
             return RouteDecision(BackendKind.LOCAL, ApprovalClass.SAFE_LOCAL, "pwd_query", "pwd")
+        if any(token in lowered for token in ("read file", "show file", "open file", "cat ")):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.SAFE_LOCAL,
+                "file_read",
+                "file_read",
+            )
+        if any(token in lowered for token in ("find file", "locate file", "search file named")):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.SAFE_LOCAL,
+                "file_find",
+                "file_find",
+            )
+        if any(token in lowered for token in ("search for", "find text", "grep ")) and any(
+            token in lowered for token in ("in files", "in repo", "in project")
+        ):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.SAFE_LOCAL,
+                "file_search_text",
+                "file_search_text",
+            )
+        if any(
+            token in lowered
+            for token in (
+                "create directory",
+                "make directory",
+                "create folder",
+                "make folder",
+                "mkdir ",
+            )
+        ):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.USER_CONFIRM,
+                "file_mkdir",
+                "file_mkdir",
+            )
+        if any(token in lowered for token in ("create file", "make file", "touch ")):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.USER_CONFIRM,
+                "file_touch",
+                "file_touch",
+            )
+        if any(
+            token in lowered
+            for token in ("copy file", "copy folder", "copy directory", "copy ")
+        ):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.USER_CONFIRM,
+                "file_copy",
+                "file_copy",
+            )
+        if any(
+            token in lowered
+            for token in ("move file", "move folder", "move directory", "move ")
+        ):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.USER_CONFIRM,
+                "file_move",
+                "file_move",
+            )
+        if any(
+            token in lowered
+            for token in ("delete file", "remove file", "delete folder", "remove folder")
+        ):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.DESTRUCTIVE,
+                "file_delete",
+                "file_delete",
+            )
+        if any(
+            token in lowered
+            for token in ("list files in", "show files in", "list directory", "show directory")
+        ):
+            return RouteDecision(
+                BackendKind.LOCAL,
+                ApprovalClass.SAFE_LOCAL,
+                "file_list_dir",
+                "file_list_dir",
+            )
         launch_tokens = (
             "open terminal",
             "launch terminal",
@@ -372,6 +462,13 @@ class Orchestrator:
             "search web for",
             "look up",
             "google ",
+            "click on the page",
+            "click in the browser",
+            "click the link",
+            "click the button",
+            "type \"",
+            "enter \"",
+            "fill \"",
             "show me the page",
             "screenshot the page",
             "capture the page",
@@ -627,15 +724,12 @@ class Orchestrator:
     def voice_response_for(self, result: TaskResult) -> str:
         if result.status == TaskStatus.APPROVAL_REQUIRED:
             approval_phrase = result.approval_class.value.replace("_", " ")
-            return (
-                f"Reda, I need approval for a {approval_phrase} task. "
-                "Say approve latest task, or run dude approve --latest."
-            )
+            return self.persona.approval_required(approval_phrase)
         if result.status == TaskStatus.FAILED:
             if result.error_text.strip():
                 detail = result.error_text.strip().splitlines()[0]
-                return f"That task failed. {detail}"
-            return "That task failed."
+                return self.persona.failure(detail)
+            return self.persona.failure()
         if result.output_text.strip():
             return result.output_text.strip()
         return "Task completed."
@@ -755,6 +849,25 @@ class Orchestrator:
                 stdout_text=f"Launched {' '.join(command)} with pid {process.pid}.",
                 stderr_text="",
             )
+        elif tool_name in {
+            "file_read",
+            "file_mkdir",
+            "file_touch",
+            "file_list_dir",
+            "file_copy",
+            "file_move",
+            "file_delete",
+            "file_find",
+            "file_search_text",
+        }:
+            result = self.files.execute_request(tool_name, request_text, working_dir)
+            return ActionResult(
+                executor=result.executor,
+                command=result.command,
+                exit_code=result.exit_code,
+                stdout_text=result.stdout_text,
+                stderr_text=result.stderr_text,
+            )
         else:
             raise RuntimeError(f"Unsupported local tool: {tool_name}")
 
@@ -789,12 +902,20 @@ class Orchestrator:
             if memory_context
             else ""
         )
+        runtime_context = self._build_runtime_context()
+        runtime_block = (
+            "Current local context:\n"
+            f"{runtime_context}\n"
+            if runtime_context
+            else ""
+        )
         return (
             "You are Dude's execution backend.\n"
             f"Task: {request_text}\n"
             f"Approval class: {decision.approval_class.value}\n"
             f"Route reason: {decision.route_reason}\n"
             f"{memory_block}"
+            f"{runtime_block}"
             f"{mode}\n"
             "Return a concise result summary."
         )
@@ -862,6 +983,41 @@ class Orchestrator:
             if not summary:
                 continue
             lines.append(f"- {kind}: {summary}")
+        return "\n".join(lines)
+
+    def _build_runtime_context(self) -> str:
+        lines: list[str] = []
+        browser_state = self.browser.get_state()
+        if isinstance(browser_state, dict):
+            url = str(browser_state.get("url", "")).strip()
+            title = str(browser_state.get("title", "")).strip()
+            excerpt = str(browser_state.get("page_excerpt", "")).strip()
+            mode = str(browser_state.get("mode", "")).strip()
+            browser_line = "browser"
+            if url:
+                browser_line += f": {url}"
+            if title:
+                browser_line += f" | title={title}"
+            if mode:
+                browser_line += f" | mode={mode}"
+            if excerpt:
+                browser_line += f" | excerpt={self._truncate_memory_text(excerpt)}"
+            lines.append(f"- {browser_line}")
+
+        screen_state = self.screen.get_state()
+        if isinstance(screen_state, dict):
+            artifact = str(screen_state.get("artifact_path", "")).strip()
+            resolution = str(screen_state.get("resolution", "")).strip()
+            mode = str(screen_state.get("mode", "")).strip()
+            screen_line = "screen"
+            if mode:
+                screen_line += f": mode={mode}"
+            if resolution:
+                screen_line += f" | resolution={resolution}"
+            if artifact:
+                screen_line += f" | artifact={artifact}"
+            lines.append(f"- {screen_line}")
+
         return "\n".join(lines)
 
     def _resolve_launch_command(self, request_text: str) -> list[str]:

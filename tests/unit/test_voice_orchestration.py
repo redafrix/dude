@@ -62,3 +62,30 @@ def test_voice_pipeline_uses_command_handler_for_non_builtin_command() -> None:
 
     assert result.command_text == "download discord for me"
     assert result.response_text == "handled: download discord for me"
+
+
+def test_voice_pipeline_uses_persona_for_builtin_greeting() -> None:
+    config = load_config("configs/default.yaml")
+    config.persona.mode = "narcissistic"
+    status = AssistantStatus(state=AssistantState.ARMED, armed=True)
+
+    pipeline = VoicePipeline(
+        config,
+        logging.getLogger("test"),
+        status,
+        audio_input=ReplayAudioInput(config.audio, np.zeros(0, dtype=np.float32)),
+        audio_output=CaptureAudioOutput(config.audio),
+        asr=_FakeAsr(["Dude, hello"]),
+        tts=_FakeTts(),
+    )
+
+    result = asyncio.run(
+        pipeline._process_utterance(
+            np.ones(config.audio.block_samples, dtype=np.float32) * 0.1,
+            "transcript_gate",
+            0.0,
+            "transcript",
+        )
+    )
+
+    assert result.response_text == "Dude is online. What masterpiece are we handling?"

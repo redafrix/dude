@@ -103,6 +103,7 @@ Fixture workflow:
 ```bash
 dude --config configs/default.yaml record-fixture --seconds 4 --output fixtures/generated/wake-hello.wav
 dude --config configs/default.yaml record-wake-enrollment --output-dir fixtures/enrollment/reda
+dude --config configs/default.yaml record-corpus --output-dir fixtures/generated/m1-core --profile m1-core
 dude --config configs/default.yaml eval-fixtures --manifest fixtures/manifests/m1-template.yaml
 dude --config configs/default.yaml eval-pipeline --manifest fixtures/manifests/m1-template.yaml
 ```
@@ -143,9 +144,12 @@ Remote API workflow:
 ```bash
 dude --config configs/default.yaml remote-token
 dude --config configs/default.yaml remote-serve
+dude --config configs/default.yaml tailscale-serve
 ```
 
 Then open `http://127.0.0.1:8765/` on the local machine or through a private tunnel such as Tailscale, paste the bearer token once, and use the remote web app.
+
+If Tailscale is installed and logged in, `dude tailscale-serve` configures a tailnet HTTPS entrypoint to the same remote API so the PWA can be opened from your phone without exposing the service publicly.
 
 Remote voice-note task flow is also available through the web app and the `POST /voice/task` endpoint.
 
@@ -170,9 +174,11 @@ Telegram uses the same task router, approvals, memory store, and reply-audio pat
 - SQLite-backed task audit log
 - Approval-classified task routing for text requests
 - deterministic local launch bootstrap for terminal, files, downloads, browser, and Discord
+- deterministic local file read/list/create/mkdir/copy/move/delete/find/search routing with explicit approvals
 - Codex execution bridge and Gemini planning bridge
+- backend prompts enriched with local memory plus current browser/screen context
 - headless browser capture with screenshot artifacts
-- browser search, page summaries, and link extraction
+- browser search, page summaries, link extraction, and basic click/type automation
 - persisted browser state for later visibility flows
 - authenticated localhost HTTP gateway for future remote clients
 - X11 desktop screenshot and clip capture with remote artifact access
@@ -181,6 +187,9 @@ Telegram uses the same task router, approvals, memory store, and reply-audio pat
 - remote reply-audio generation and playback artifacts
 - local memory summaries plus operator notes in the SQLite store
 - Telegram text and voice-note transport with optional voice replies
+- Tailscale Serve helper for tailnet-only remote access
+- configurable persona layer for built-in spoken/system phrasing
+- desktop approval prompt hook for approval-required voice tasks
 
 ## Current Measured Baseline
 

@@ -5,12 +5,13 @@ import contextlib
 import logging
 from typing import Any
 
+from dude.approval import DesktopApprovalPrompter
 from dude.config import DudeConfig
 from dude.control import ControlPlane
 from dude.events import AssistantState, AssistantStatus
 from dude.logging import log_event
 from dude.metrics import collect_resource_snapshot, write_benchmark_result
-from dude.orchestrator import BackendKind, Orchestrator, TaskRequest
+from dude.orchestrator import BackendKind, Orchestrator, TaskRequest, TaskStatus
 from dude.pipeline import VoicePipeline
 
 
@@ -21,6 +22,7 @@ class DudeService:
         self.status = AssistantStatus()
         self.pipeline = VoicePipeline(config, logger, self.status)
         self.orchestrator = Orchestrator(config, logger)
+        self.approval_prompter = DesktopApprovalPrompter(config.approval)
         self.control = ControlPlane(
             config.runtime.control_socket_path,
             self.handle_command,
@@ -134,6 +136,14 @@ class DudeService:
                 auto_approve=False,
             ),
         )
+        if result.status == TaskStatus.APPROVAL_REQUIRED:
+            approved = await asyncio.to_thread(self.approval_prompter.prompt_task, result)
+            if approved:
+                result = await asyncio.to_thread(
+                    self.orchestrator.approve_task,
+                    result.task_id,
+                    latest=False,
+                )
         return self.orchestrator.voice_response_for(result)
 
     async def _run_smoke_benchmark(self) -> dict[str, Any]:

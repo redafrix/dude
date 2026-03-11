@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 
 from dude.config import load_config
-from dude.eval import load_fixture_manifest, record_wake_enrollment
+from dude.eval import load_fixture_manifest, record_scenario_corpus, record_wake_enrollment
 
 
 def test_load_fixture_manifest_supports_list_and_relative_paths(tmp_path: Path) -> None:
@@ -63,3 +63,36 @@ def test_record_wake_enrollment_writes_manifest(monkeypatch, tmp_path: Path) -> 
     assert "wake_enrollment" in manifest_text
     assert "phrase: dude" in manifest_text
     assert "wake-001.wav" in manifest_text
+
+
+def test_record_scenario_corpus_writes_manifest(monkeypatch, tmp_path: Path) -> None:
+    config = load_config("configs/default.yaml")
+
+    async def _fake_record_fixture(config, output_path: Path, duration_seconds: float):
+        del config, duration_seconds
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"RIFF")
+        return {
+            "output_path": str(output_path),
+            "duration_seconds": 1.0,
+            "sample_rate_hz": 16000,
+        }
+
+    monkeypatch.setattr("dude.eval.record_fixture", _fake_record_fixture)
+
+    payload = asyncio.run(
+        record_scenario_corpus(
+            config,
+            tmp_path / "corpus",
+            profile="m1-core",
+            takes_per_prompt=1,
+            announce=False,
+        )
+    )
+
+    manifest_path = Path(payload["manifest_path"])
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    assert payload["case_count"] >= 5
+    assert "voice_corpus" in manifest_text
+    assert "wake-hello-01.wav" in manifest_text
+    assert "spoken_prompt: Dude, hello" in manifest_text

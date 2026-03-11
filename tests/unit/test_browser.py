@@ -72,6 +72,31 @@ def test_parse_browser_request_detects_summarize_action() -> None:
     assert request.url is None
 
 
+def test_parse_browser_request_detects_click_action() -> None:
+    request = parse_browser_request(
+        'open browser https://example.com and click "More information"',
+        default_url="https://fallback.test",
+        headless_by_default=True,
+    )
+
+    assert request.action == "click"
+    assert request.url == "https://example.com"
+    assert request.target_text == "More information"
+
+
+def test_parse_browser_request_detects_type_action() -> None:
+    request = parse_browser_request(
+        'type "dude assistant" into "Search"',
+        default_url="https://fallback.test",
+        headless_by_default=True,
+    )
+
+    assert request.action == "type"
+    assert request.url is None
+    assert request.target_text == "Search"
+    assert request.input_text == "dude assistant"
+
+
 def test_browser_controller_can_summarize_current_page(
     tmp_path: Path,
     monkeypatch,
@@ -108,3 +133,75 @@ def test_browser_controller_can_summarize_current_page(
     assert result.exit_code == 0
     assert "Page summary for https://example.com." in result.stdout_text
     assert "Example body text for the page summary." in result.stdout_text
+
+
+def test_browser_controller_can_click_current_page_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.browser.artifact_dir = tmp_path / "browser"
+    controller = BrowserController(config, logging.getLogger("test"))
+    controller._save_state(
+        {
+            "updated_at": "now",
+            "mode": "headless",
+            "engine": "playwright",
+            "url": "https://example.com",
+            "title": "Example",
+            "screenshot_path": None,
+        }
+    )
+
+    monkeypatch.setattr(
+        controller,
+        "_click_with_playwright",
+        lambda url, target_text, capture_screenshot: controller.show_state().__class__(
+            executor="browser",
+            command=["playwright", "click", target_text],
+            exit_code=0,
+            stdout_text=f"Clicked '{target_text}' on {url}.",
+            stderr_text="",
+        ),
+    )
+
+    result = controller.execute_request('click "More information"', tmp_path)
+
+    assert result.exit_code == 0
+    assert "Clicked 'More information' on https://example.com." in result.stdout_text
+
+
+def test_browser_controller_can_type_into_current_page_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.browser.artifact_dir = tmp_path / "browser"
+    controller = BrowserController(config, logging.getLogger("test"))
+    controller._save_state(
+        {
+            "updated_at": "now",
+            "mode": "headless",
+            "engine": "playwright",
+            "url": "https://example.com",
+            "title": "Example",
+            "screenshot_path": None,
+        }
+    )
+
+    monkeypatch.setattr(
+        controller,
+        "_type_with_playwright",
+        lambda url, field_target, input_text, capture_screenshot: controller.show_state().__class__(
+            executor="browser",
+            command=["playwright", "type", field_target],
+            exit_code=0,
+            stdout_text=f"Entered text into '{field_target}' on {url}.",
+            stderr_text="",
+        ),
+    )
+
+    result = controller.execute_request('type "dude assistant" into "Search"', tmp_path)
+
+    assert result.exit_code == 0
+    assert "Entered text into 'Search' on https://example.com." in result.stdout_text

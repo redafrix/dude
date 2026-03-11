@@ -13,6 +13,7 @@ from dude.orchestrator import (
     BackendKind,
     Orchestrator,
     TaskRequest,
+    TaskResult,
     TaskStatus,
 )
 from dude.screen import ScreenCaptureResult
@@ -365,6 +366,8 @@ def test_orchestrator_includes_memory_context_in_backend_prompt(tmp_path: Path) 
         audit_store=audit,
         codex_runner=codex_runner,
         gemini_runner=_FakeRunner("gemini", "planned"),
+        browser_controller=_FakeBrowserController(),
+        screen_controller=_FakeScreenController(),
     )
 
     orchestrator.create_memory_note("Prefer visible browser mode.")
@@ -380,6 +383,31 @@ def test_orchestrator_includes_memory_context_in_backend_prompt(tmp_path: Path) 
     assert codex_runner.prompts
     assert "Relevant local memory:" in codex_runner.prompts[0]
     assert "Prefer visible browser mode." in codex_runner.prompts[0]
+    assert "Current local context:" in codex_runner.prompts[0]
+    assert "https://example.com" in codex_runner.prompts[0]
+    assert "/tmp/desktop.png" in codex_runner.prompts[0]
+
+
+def test_orchestrator_voice_response_uses_persona_for_approval(tmp_path: Path) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.runtime.audit_db_path = tmp_path / "dude.db"
+    config.persona.mode = "narcissistic"
+    orchestrator = Orchestrator(config, logging.getLogger("test"))
+
+    result = TaskResult(
+        task_id="task-1",
+        status=TaskStatus.APPROVAL_REQUIRED,
+        backend=BackendKind.CODEX,
+        approval_class=ApprovalClass.NETWORK,
+        route_reason="network_request",
+        request_text="download discord",
+        requires_approval=True,
+    )
+
+    response = orchestrator.voice_response_for(result)
+
+    assert "Reda" in response
+    assert "network" in response
 
 
 def test_orchestrator_can_launch_downloads_folder(tmp_path: Path) -> None:
@@ -410,3 +438,62 @@ def test_orchestrator_can_launch_downloads_folder(tmp_path: Path) -> None:
     assert result.backend == BackendKind.LOCAL
     assert result.approval_class == ApprovalClass.SAFE_LOCAL
     assert "pid 4242" in result.output_text
+
+
+def test_orchestrator_routes_file_creation_to_approval(tmp_path: Path) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.runtime.audit_db_path = tmp_path / "dude.db"
+    orchestrator = Orchestrator(config, logging.getLogger("test"))
+
+    result = orchestrator.run_task(
+        TaskRequest(
+            text='create file "notes.txt"',
+            preferred_backend=BackendKind.AUTO,
+            auto_approve=False,
+            working_dir=tmp_path,
+        )
+    )
+
+    assert result.status == TaskStatus.APPROVAL_REQUIRED
+    assert result.backend == BackendKind.LOCAL
+    assert result.approval_class == ApprovalClass.USER_CONFIRM
+
+
+def test_orchestrator_routes_file_delete_to_destructive_approval(tmp_path: Path) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.runtime.audit_db_path = tmp_path / "dude.db"
+    orchestrator = Orchestrator(config, logging.getLogger("test"))
+
+    result = orchestrator.run_task(
+        TaskRequest(
+            text='delete file "notes.txt"',
+            preferred_backend=BackendKind.AUTO,
+            auto_approve=False,
+            working_dir=tmp_path,
+        )
+    )
+
+    assert result.status == TaskStatus.APPROVAL_REQUIRED
+    assert result.backend == BackendKind.LOCAL
+    assert result.approval_class == ApprovalClass.DESTRUCTIVE
+
+
+def test_orchestrator_routes_repo_text_search_to_safe_local(tmp_path: Path) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.runtime.audit_db_path = tmp_path / "dude.db"
+    (tmp_path / "notes.txt").write_text("todo: ship dude\n", encoding="utf-8")
+    orchestrator = Orchestrator(config, logging.getLogger("test"))
+
+    result = orchestrator.run_task(
+        TaskRequest(
+            text='search for "ship dude" in files',
+            preferred_backend=BackendKind.AUTO,
+            auto_approve=False,
+            working_dir=tmp_path,
+        )
+    )
+
+    assert result.status == TaskStatus.COMPLETED
+    assert result.backend == BackendKind.LOCAL
+    assert result.approval_class == ApprovalClass.SAFE_LOCAL
+    assert "notes.txt" in result.output_text

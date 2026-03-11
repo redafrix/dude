@@ -99,6 +99,14 @@ memory:
   max_entries: 200
   summary_max_chars: 280
 
+persona:
+  mode: "neutral"
+  operator_name: "Reda"
+
+approval:
+  desktop_prompt: true
+  prompt_backend: "auto"
+
 benchmark:
   idle_false_accept_window_seconds: 1800
   warm_target_first_audio_ms: 1500

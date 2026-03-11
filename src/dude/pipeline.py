@@ -24,6 +24,7 @@ from dude.events import AssistantState, AssistantStatus
 from dude.logging import log_event
 from dude.metrics import LatencyRecorder
 from dude.normalize import TranscriptNormalizer
+from dude.persona import PersonaController
 from dude.wake import PhraseWakeDetector, build_stream_wake_detector
 
 PipelineObserver = Callable[[str, dict[str, object]], None]
@@ -74,6 +75,7 @@ class VoicePipeline:
             config.wake_word, logger
         )
         self.normalizer = normalizer or TranscriptNormalizer(config.normalization)
+        self.persona = PersonaController(config.persona)
         self.command_handler = command_handler
         self.observer = observer
         self._running = False
@@ -323,18 +325,18 @@ class VoicePipeline:
     async def _build_response(self, command_text: str) -> str:
         command = command_text.strip().lower()
         if not command:
-            return self.config.activation.greeting_text
+            return self.persona.greeting(self.config.activation.greeting_text)
         if any(token in command for token in ("hello", "hi", "hey")):
-            return self.config.activation.greeting_text
+            return self.persona.greeting(self.config.activation.greeting_text)
         if "stop" in command:
             self.status.armed = False
             self.status.state = AssistantState.IDLE
-            return "Stopping. Say Alt plus A when you want me again."
+            return self.persona.stop_response()
         if "status" in command:
-            return f"I am {self.status.state.value.replace('_', ' ')} and listening."
+            return self.persona.status_response(self.status.state.value)
         if self.command_handler is not None:
             return await self.command_handler(command_text)
-        return "I heard you. Milestone one only supports greeting and control commands so far."
+        return self.persona.builtin_fallback()
 
     async def _speak(self, text: str) -> None:
         self.status.speaking = True

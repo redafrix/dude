@@ -8,6 +8,7 @@ The remote API is the first reusable transport layer for non-desktop access to `
   - authenticated local HTTP server
   - standard-library implementation, no extra web framework required
   - defaults to `127.0.0.1:8765`
+  - optional `dude tailscale-serve` helper can publish it privately over the tailnet
 - UI:
   - browser-served remote web app at `/`
   - installable manifest and service worker bootstrap for PWA-style mobile use

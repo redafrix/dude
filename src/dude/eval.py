@@ -33,6 +33,70 @@ class FixtureCase:
     expected_response_contains: list[str] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class CorpusPrompt:
+    prompt_id: str
+    scenario: str
+    spoken_prompt: str
+    duration_seconds: float
+    expected_wake: bool | None = None
+    expected_transcript_contains: list[str] = field(default_factory=list)
+    expected_response_contains: list[str] = field(default_factory=list)
+
+
+M1_CORE_CORPUS: list[CorpusPrompt] = [
+    CorpusPrompt(
+        prompt_id="wake-hello",
+        scenario="greeting",
+        spoken_prompt="Dude, hello",
+        duration_seconds=3.5,
+        expected_wake=True,
+        expected_transcript_contains=["dude", "hello"],
+        expected_response_contains=["hi"],
+    ),
+    CorpusPrompt(
+        prompt_id="wake-stop",
+        scenario="control",
+        spoken_prompt="Dude, stop",
+        duration_seconds=3.5,
+        expected_wake=True,
+        expected_transcript_contains=["dude", "stop"],
+        expected_response_contains=["stopping"],
+    ),
+    CorpusPrompt(
+        prompt_id="coding-math",
+        scenario="coding_math",
+        spoken_prompt="Dude, alpha minus two plus three",
+        duration_seconds=4.5,
+        expected_wake=True,
+        expected_transcript_contains=["alpha - 2 + 3"],
+    ),
+    CorpusPrompt(
+        prompt_id="browser-show",
+        scenario="browser",
+        spoken_prompt="Dude, open the browser and show me the page",
+        duration_seconds=5.0,
+        expected_wake=True,
+        expected_transcript_contains=["open the browser", "show me the page"],
+    ),
+    CorpusPrompt(
+        prompt_id="download-discord",
+        scenario="agent_task",
+        spoken_prompt="Dude, go download Discord",
+        duration_seconds=5.0,
+        expected_wake=True,
+        expected_transcript_contains=["download", "discord"],
+    ),
+    CorpusPrompt(
+        prompt_id="idle-noise",
+        scenario="idle_noise",
+        spoken_prompt="Stay silent and capture desk/background noise only.",
+        duration_seconds=15.0,
+        expected_wake=False,
+    ),
+]
+
+
 def _load_audio(path: Path, target_rate_hz: int) -> np.ndarray:
     samples, sample_rate_hz = sf.read(path, always_2d=False)
     samples = np.asarray(samples, dtype=np.float32)
@@ -141,6 +205,67 @@ async def record_wake_enrollment(
         "take_count": take_count,
         "phrase": phrase,
         "takes": takes,
+    }
+
+
+def _select_corpus_profile(profile: str) -> list[CorpusPrompt]:
+    if profile == "m1-core":
+        return copy.deepcopy(M1_CORE_CORPUS)
+    raise ValueError(f"Unsupported corpus profile: {profile}")
+
+
+async def record_scenario_corpus(
+    config: DudeConfig,
+    output_dir: Path,
+    *,
+    profile: str,
+    takes_per_prompt: int,
+    announce: bool = True,
+) -> dict[str, Any]:
+    prompts = _select_corpus_profile(profile)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cases: list[dict[str, Any]] = []
+
+    for prompt in prompts:
+        for take_index in range(1, takes_per_prompt + 1):
+            fixture_id = f"{prompt.prompt_id}-{take_index:02d}"
+            output_path = output_dir / f"{fixture_id}.wav"
+            if announce:
+                print(
+                    f"[{fixture_id}] {prompt.scenario}: {prompt.spoken_prompt} "
+                    f"({prompt.duration_seconds:.1f}s)"
+                )
+            await record_fixture(config, output_path, prompt.duration_seconds)
+            case = {
+                "id": fixture_id,
+                "scenario": prompt.scenario,
+                "spoken_prompt": prompt.spoken_prompt,
+                "path": output_path.name,
+                "expected_wake": prompt.expected_wake,
+            }
+            if prompt.expected_transcript_contains:
+                case["expected_transcript_contains"] = list(prompt.expected_transcript_contains)
+            if prompt.expected_response_contains:
+                case["expected_response_contains"] = list(prompt.expected_response_contains)
+            cases.append(case)
+
+    manifest = {
+        "kind": "voice_corpus",
+        "profile": profile,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "sample_rate_hz": config.audio.sample_rate_hz,
+        "takes_per_prompt": takes_per_prompt,
+        "cases": cases,
+    }
+    manifest_path = output_dir / "manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    return {
+        "output_dir": str(output_dir),
+        "manifest_path": str(manifest_path),
+        "profile": profile,
+        "takes_per_prompt": takes_per_prompt,
+        "case_count": len(cases),
+        "cases": cases,
     }
 
 

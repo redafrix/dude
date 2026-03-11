@@ -14,7 +14,7 @@ The browser subsystem is the first non-trivial local capability built on top of 
   - preferred engine is Playwright when installed
   - current runtime falls back to Chrome headless CLI if Playwright is unavailable
   - a screenshot artifact is written under `runtime/browser/`
-  - headless requests can now also summarize a page or extract top links
+  - headless requests can now also summarize a page, extract top links, click a visible target, or type into a field
 - Visible mode:
   - explicit phrases such as `show me the page` or `deactivate headless`
   - launches a visible browser window with the system browser
@@ -31,7 +31,7 @@ The browser subsystem is the first non-trivial local capability built on top of 
 
 ## Known Limits
 
-- Headless capture and read-only inspection are functional now, but full scripted browser interaction is still limited.
+- Headless capture, read-only inspection, and basic click/type automation are functional now, but full scripted interaction is still limited.
 - Visible-mode browser launch does not yet provide live remote streaming.
 - The current state model tracks the last browser artifact, not a full session graph.
 - Playwright is optional today; richer DOM automation should standardize on it later.
