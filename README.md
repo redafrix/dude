@@ -110,6 +110,7 @@ dude --config configs/default.yaml record-corpus --output-dir fixtures/generated
 dude --config configs/default.yaml eval-fixtures --manifest fixtures/manifests/m1-template.yaml
 dude --config configs/default.yaml eval-speaker --manifest fixtures/manifests/m1-template.yaml --profile runtime/reda-speaker.json
 dude --config configs/default.yaml eval-pipeline --manifest fixtures/manifests/m1-template.yaml
+dude --config configs/default.yaml benchmark-voice-corpus --manifest fixtures/manifests/m1-template.yaml --wake-backend transcript --wake-backend openwakeword
 ```
 
 The manifest template lives at [`fixtures/manifests/m1-template.yaml`](/home/redafrix/tests/dude/fixtures/manifests/m1-template.yaml).
@@ -176,6 +177,7 @@ Telegram uses the same task router, approvals, memory store, and reply-audio pat
 - Replayable end-to-end pipeline evaluation through the real runtime path
 - wake enrollment recording workflow for personalized wake-word datasets
 - speaker-profile build and optional "my voice only" verification gate
+- combined corpus benchmark command for wake-backend comparison and aggregate pass-rate reporting
 - SQLite-backed task audit log
 - Approval-classified task routing for text requests
 - askpass-backed sudo handoff for approved Codex tasks

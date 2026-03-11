@@ -1,8 +1,14 @@
 import asyncio
+import logging
 from pathlib import Path
 
 from dude.config import load_config
-from dude.eval import load_fixture_manifest, record_scenario_corpus, record_wake_enrollment
+from dude.eval import (
+    benchmark_voice_corpus,
+    load_fixture_manifest,
+    record_scenario_corpus,
+    record_wake_enrollment,
+)
 
 
 def test_load_fixture_manifest_supports_list_and_relative_paths(tmp_path: Path) -> None:
@@ -99,3 +105,58 @@ def test_record_scenario_corpus_writes_manifest(monkeypatch, tmp_path: Path) -> 
     assert "wake-hello-01.wav" in manifest_text
     assert "spoken_prompt: Dude, hello" in manifest_text
     assert "expected_speaker_match: true" in manifest_text
+
+
+def test_benchmark_voice_corpus_compares_backends(monkeypatch, tmp_path: Path) -> None:
+    config = load_config("configs/default.yaml")
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("cases: []\n", encoding="utf-8")
+
+    fixture_report = {"case_count": 0, "wake_pass_count": 0}
+    pipeline_reports = {
+        "transcript": {
+            "wake_pass_count": 8,
+            "wake_expected_count": 10,
+            "transcript_pass_count": 6,
+            "transcript_expected_count": 10,
+            "response_pass_count": 5,
+            "response_expected_count": 10,
+            "speaker_pass_count": 0,
+            "speaker_expected_count": 0,
+        },
+        "openwakeword": {
+            "wake_pass_count": 9,
+            "wake_expected_count": 10,
+            "transcript_pass_count": 6,
+            "transcript_expected_count": 10,
+            "response_pass_count": 5,
+            "response_expected_count": 10,
+            "speaker_pass_count": 0,
+            "speaker_expected_count": 0,
+        },
+    }
+
+    monkeypatch.setattr(
+        "dude.eval.evaluate_fixtures",
+        lambda config, manifest, logger: fixture_report,
+    )
+
+    async def _fake_eval_pipeline(config, manifest, logger, *, wake_backend=None, realtime=False):
+        del config, manifest, logger, realtime
+        assert wake_backend is not None
+        return dict(pipeline_reports[wake_backend])
+
+    monkeypatch.setattr("dude.eval.evaluate_pipeline", _fake_eval_pipeline)
+
+    payload = asyncio.run(
+        benchmark_voice_corpus(
+            config,
+            manifest,
+            logger=logging.getLogger("test"),
+            wake_backends=["transcript", "openwakeword"],
+        )
+    )
+
+    assert payload["recommended_wake_backend"]["backend"] == "openwakeword"
+    assert payload["wake_backend_reports"]["transcript"]["wake_pass_rate"] == 0.8
+    assert payload["wake_backend_reports"]["openwakeword"]["wake_pass_rate"] == 0.9

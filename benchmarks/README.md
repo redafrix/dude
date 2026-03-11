@@ -8,6 +8,7 @@ Current commands:
 dude benchmark
 dude eval-fixtures --manifest fixtures/manifests/m1-template.yaml
 dude eval-pipeline --manifest fixtures/manifests/m1-template.yaml
+dude benchmark-voice-corpus --manifest fixtures/manifests/m1-template.yaml --wake-backend transcript --wake-backend openwakeword
 ```
 
 What exists now:
@@ -15,6 +16,7 @@ What exists now:
 - `benchmark`: ASR warmup/load timing, Kokoro cold/warm TTS timing, and a resource snapshot
 - `eval-fixtures`: fixture-driven ASR transcript checks plus wake-result accounting
 - `eval-pipeline`: replay a fixture manifest through the real wake/VAD/ASR/TTS pipeline and collect per-case runtime results
+- `benchmark-voice-corpus`: combined corpus benchmark that compares wake backends and aggregates wake, transcript, response, and speaker pass rates
 - service smoke benchmark: still available through the running service control path
 - benchmark output now records the ASR device actually used, which matters on this machine because `auto` currently falls back from CUDA to CPU during transcription
 

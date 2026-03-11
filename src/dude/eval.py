@@ -614,6 +614,103 @@ def write_named_report(output_path: Path, payload: dict[str, Any]) -> Path:
     return output_path
 
 
+async def benchmark_voice_corpus(
+    config: DudeConfig,
+    manifest_path: Path,
+    logger: logging.Logger,
+    *,
+    wake_backends: list[str] | None = None,
+) -> dict[str, object]:
+    requested_backends = wake_backends or [config.wake_word.backend]
+    backend_reports: dict[str, dict[str, object]] = {}
+    for backend in requested_backends:
+        try:
+            pipeline_report = await evaluate_pipeline(
+                config,
+                manifest_path,
+                logger,
+                wake_backend=backend,
+                realtime=False,
+            )
+            backend_reports[backend] = {
+                "ok": True,
+                "pipeline": pipeline_report,
+                "wake_pass_rate": _safe_rate(
+                    pipeline_report.get("wake_pass_count", 0),
+                    pipeline_report.get("wake_expected_count", 0),
+                ),
+                "speaker_pass_rate": _safe_rate(
+                    pipeline_report.get("speaker_pass_count", 0),
+                    pipeline_report.get("speaker_expected_count", 0),
+                ),
+                "transcript_pass_rate": _safe_rate(
+                    pipeline_report.get("transcript_pass_count", 0),
+                    pipeline_report.get("transcript_expected_count", 0),
+                ),
+                "response_pass_rate": _safe_rate(
+                    pipeline_report.get("response_pass_count", 0),
+                    pipeline_report.get("response_expected_count", 0),
+                ),
+            }
+        except Exception as exc:
+            backend_reports[backend] = {
+                "ok": False,
+                "error": str(exc),
+            }
+
+    fixture_report = evaluate_fixtures(config, manifest_path, logger)
+    recommendation = _recommend_wake_backend(backend_reports)
+    targets = {
+        "warm_target_first_audio_ms": config.benchmark.warm_target_first_audio_ms,
+        "cold_target_first_audio_ms": config.benchmark.cold_target_first_audio_ms,
+        "barge_in_target_ms": config.benchmark.barge_in_target_ms,
+    }
+    return {
+        "manifest_path": str(manifest_path),
+        "fixture_eval": fixture_report,
+        "wake_backend_reports": backend_reports,
+        "recommended_wake_backend": recommendation,
+        "benchmark_targets": targets,
+        "resources": collect_resource_snapshot(),
+    }
+
+
+def _safe_rate(numerator: object, denominator: object) -> float | None:
+    try:
+        top = float(numerator)
+        bottom = float(denominator)
+    except (TypeError, ValueError):
+        return None
+    if bottom <= 0:
+        return None
+    return round(top / bottom, 4)
+
+
+def _recommend_wake_backend(
+    backend_reports: dict[str, dict[str, object]],
+) -> dict[str, object] | None:
+    best_backend: str | None = None
+    best_score = (-1.0, -1.0, -1.0)
+    for backend, report in backend_reports.items():
+        if not report.get("ok"):
+            continue
+        wake_rate = float(report.get("wake_pass_rate") or 0.0)
+        transcript_rate = float(report.get("transcript_pass_rate") or 0.0)
+        response_rate = float(report.get("response_pass_rate") or 0.0)
+        score = (wake_rate, transcript_rate, response_rate)
+        if score > best_score:
+            best_score = score
+            best_backend = backend
+    if best_backend is None:
+        return None
+    return {
+        "backend": best_backend,
+        "wake_pass_rate": best_score[0],
+        "transcript_pass_rate": best_score[1],
+        "response_pass_rate": best_score[2],
+    }
+
+
 def build_speaker_profile_report(
     config: DudeConfig,
     logger: logging.Logger,

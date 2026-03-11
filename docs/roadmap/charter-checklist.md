@@ -21,6 +21,7 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
   - component eval runner
   - end-to-end pipeline replay eval
   - speaker profile build and speaker-match eval flow
+  - combined corpus benchmark with wake-backend comparison
 - Transcript intelligence foundation:
   - deterministic normalization for coding/math/shell-style phrases
 - Orchestration foundation:

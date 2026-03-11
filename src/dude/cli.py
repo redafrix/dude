@@ -11,6 +11,7 @@ from dude.config import DudeConfig, load_config
 from dude.control import send_command
 from dude.eval import (
     benchmark_backends,
+    benchmark_voice_corpus,
     build_speaker_profile_report,
     evaluate_fixtures,
     evaluate_pipeline,
@@ -175,6 +176,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--realtime",
         action="store_true",
         help="Replay audio in realtime instead of as fast as possible.",
+    )
+
+    voice_benchmark = subparsers.add_parser(
+        "benchmark-voice-corpus",
+        help="Run the fixture, pipeline, and wake-backend comparison benchmark on a voice corpus.",
+    )
+    voice_benchmark.add_argument("--manifest", type=Path, required=True)
+    voice_benchmark.add_argument(
+        "--wake-backend",
+        action="append",
+        choices=("transcript", "openwakeword"),
+        dest="wake_backends",
+        help="Wake backends to compare. Repeat to benchmark multiple backends.",
+    )
+    voice_benchmark.add_argument(
+        "--output",
+        type=Path,
+        default=Path("benchmarks/results/voice-corpus-benchmark.json"),
+        help="Output path for the combined voice benchmark report.",
     )
 
     task = subparsers.add_parser("task", help="Route a text task through the orchestrator.")
@@ -386,6 +406,19 @@ def main() -> int:
         )
         output_path = write_named_report(args.output, payload)
         print(json.dumps({"evaluation_path": str(output_path), "results": payload}, indent=2))
+        return 0
+
+    if args.command == "benchmark-voice-corpus":
+        payload = asyncio.run(
+            benchmark_voice_corpus(
+                config,
+                args.manifest,
+                logger,
+                wake_backends=args.wake_backends,
+            )
+        )
+        output_path = write_named_report(args.output, payload)
+        print(json.dumps({"benchmark_path": str(output_path), "results": payload}, indent=2))
         return 0
 
     if args.command == "task":
