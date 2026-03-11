@@ -15,6 +15,7 @@ def test_load_fixture_manifest_supports_list_and_relative_paths(tmp_path: Path) 
   path: hello.wav
   scenario: greeting
   expected_wake: true
+  expected_speaker_match: true
   expected_transcript_contains:
     - hello
   expected_response_contains: Hi
@@ -28,6 +29,7 @@ def test_load_fixture_manifest_supports_list_and_relative_paths(tmp_path: Path) 
     assert cases[0].path == fixture.resolve()
     assert cases[0].scenario == "greeting"
     assert cases[0].expected_wake is True
+    assert cases[0].expected_speaker_match is True
     assert cases[0].expected_transcript_contains == ["hello"]
     assert cases[0].expected_response_contains == ["hi"]
 
@@ -96,3 +98,4 @@ def test_record_scenario_corpus_writes_manifest(monkeypatch, tmp_path: Path) -> 
     assert "voice_corpus" in manifest_text
     assert "wake-hello-01.wav" in manifest_text
     assert "spoken_prompt: Dude, hello" in manifest_text
+    assert "expected_speaker_match: true" in manifest_text

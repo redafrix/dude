@@ -46,6 +46,9 @@ wake = [
 vad = [
   "silero-vad>=6.1.0",
 ]
+speaker = [
+  "speechbrain>=1.0.3",
+]
 
 [project.scripts]
 dude = "dude.cli:main"

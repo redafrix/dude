@@ -11,8 +11,10 @@ from dude.config import DudeConfig, load_config
 from dude.control import send_command
 from dude.eval import (
     benchmark_backends,
+    build_speaker_profile_report,
     evaluate_fixtures,
     evaluate_pipeline,
+    evaluate_speaker_profile,
     record_fixture,
     record_scenario_corpus,
     record_wake_enrollment,
@@ -109,6 +111,27 @@ def build_parser() -> argparse.ArgumentParser:
     enroll.add_argument("--phrase", default="dude")
     enroll.add_argument("--count", type=int, default=12)
     enroll.add_argument("--seconds", type=float, default=1.8)
+
+    speaker_profile = subparsers.add_parser(
+        "build-speaker-profile",
+        help="Build a speaker verification profile from an enrollment manifest.",
+    )
+    speaker_profile.add_argument("--manifest", type=Path, required=True)
+    speaker_profile.add_argument("--output", type=Path, required=True)
+    speaker_profile.add_argument("--threshold", type=float, default=None)
+
+    speaker_eval = subparsers.add_parser(
+        "eval-speaker",
+        help="Evaluate a speaker profile against a fixture manifest.",
+    )
+    speaker_eval.add_argument("--manifest", type=Path, required=True)
+    speaker_eval.add_argument("--profile", type=Path, default=None)
+    speaker_eval.add_argument(
+        "--output",
+        type=Path,
+        default=Path("benchmarks/results/speaker-eval.json"),
+        help="Output path for the speaker evaluation report.",
+    )
 
     corpus = subparsers.add_parser(
         "record-corpus",
@@ -297,6 +320,39 @@ def main() -> int:
             )
         )
         print(json.dumps(payload, indent=2))
+        return 0
+
+    if args.command == "build-speaker-profile":
+        payload = build_speaker_profile_report(
+            config,
+            logger,
+            args.manifest,
+            args.output,
+            threshold=args.threshold,
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if args.command == "eval-speaker":
+        profile_path = args.profile or config.speaker.profile_path
+        if profile_path is None:
+            print(
+                json.dumps(
+                    {
+                        "error": "Speaker evaluation requires --profile or speaker.profile_path.",
+                    },
+                    indent=2,
+                )
+            )
+            return 1
+        payload = evaluate_speaker_profile(
+            config,
+            args.manifest,
+            logger,
+            profile_path=profile_path,
+        )
+        output_path = write_named_report(args.output, payload)
+        print(json.dumps({"evaluation_path": str(output_path), "results": payload}, indent=2))
         return 0
 
     if args.command == "record-corpus":

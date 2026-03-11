@@ -58,6 +58,19 @@ class WakeWordConfig:
 
 
 @dataclass(slots=True)
+class SpeakerConfig:
+    enabled: bool = False
+    mode: Literal["advisory", "enforce"] = "enforce"
+    provider: Literal["speechbrain_ecapa"] = "speechbrain_ecapa"
+    profile_path: Path | None = None
+    enrollment_manifest_path: Path | None = None
+    threshold: float = 0.25
+    sample_rate_hz: int = 16000
+    min_duration_seconds: float = 0.35
+    cache_dir: Path | None = None
+
+
+@dataclass(slots=True)
 class AsrConfig:
     provider: Literal["faster_whisper"] = "faster_whisper"
     model_name: str = "distil-small.en"
@@ -170,6 +183,7 @@ class DudeConfig:
     activation: ActivationConfig = field(default_factory=ActivationConfig)
     vad: VadConfig = field(default_factory=VadConfig)
     wake_word: WakeWordConfig = field(default_factory=WakeWordConfig)
+    speaker: SpeakerConfig = field(default_factory=SpeakerConfig)
     asr: AsrConfig = field(default_factory=AsrConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
     normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
@@ -213,6 +227,7 @@ def load_config(path: str | Path) -> DudeConfig:
     activation_raw = _get_section(raw, "activation")
     vad_raw = _get_section(raw, "vad")
     wake_word_raw = _get_section(raw, "wake_word")
+    speaker_raw = _get_section(raw, "speaker")
     asr_raw = _get_section(raw, "asr")
     tts_raw = _get_section(raw, "tts")
     normalization_raw = _get_section(raw, "normalization")
@@ -270,6 +285,20 @@ def load_config(path: str | Path) -> DudeConfig:
             model_path=_resolve_path(wake_word_raw.get("model_path"), base_dir),
             threshold=float(wake_word_raw.get("threshold", 0.5)),
             trigger_cooldown_ms=int(wake_word_raw.get("trigger_cooldown_ms", 1600)),
+        ),
+        speaker=SpeakerConfig(
+            enabled=bool(speaker_raw.get("enabled", False)),
+            mode=str(speaker_raw.get("mode", "enforce")),  # type: ignore[arg-type]
+            provider=str(speaker_raw.get("provider", "speechbrain_ecapa")),  # type: ignore[arg-type]
+            profile_path=_resolve_path(speaker_raw.get("profile_path"), base_dir),
+            enrollment_manifest_path=_resolve_path(
+                speaker_raw.get("enrollment_manifest_path"),
+                base_dir,
+            ),
+            threshold=float(speaker_raw.get("threshold", 0.25)),
+            sample_rate_hz=int(speaker_raw.get("sample_rate_hz", 16000)),
+            min_duration_seconds=float(speaker_raw.get("min_duration_seconds", 0.35)),
+            cache_dir=_resolve_path(speaker_raw.get("cache_dir"), base_dir),
         ),
         asr=AsrConfig(
             provider=str(asr_raw.get("provider", "faster_whisper")),  # type: ignore[arg-type]

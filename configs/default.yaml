@@ -33,6 +33,17 @@ wake_word:
   threshold: 0.5
   trigger_cooldown_ms: 1600
 
+speaker:
+  enabled: false
+  mode: "enforce"
+  provider: "speechbrain_ecapa"
+  profile_path: null
+  enrollment_manifest_path: null
+  threshold: 0.25
+  sample_rate_hz: 16000
+  min_duration_seconds: 0.35
+  cache_dir: "../runtime/speaker-cache"
+
 asr:
   provider: "faster_whisper"
   model_name: "distil-small.en"

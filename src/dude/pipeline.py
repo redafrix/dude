@@ -25,6 +25,7 @@ from dude.logging import log_event
 from dude.metrics import LatencyRecorder
 from dude.normalize import TranscriptNormalizer
 from dude.persona import PersonaController
+from dude.speaker import SpeakerVerifier, build_speaker_verifier
 from dude.wake import PhraseWakeDetector, build_stream_wake_detector
 
 PipelineObserver = Callable[[str, dict[str, object]], None]
@@ -42,6 +43,9 @@ class ProcessedUtterance:
     capture_mode: str
     wake_backend: str
     asr_device: str
+    speaker_verified: bool | None = None
+    speaker_score: float | None = None
+    speaker_reason: str | None = None
 
 
 class VoicePipeline:
@@ -58,6 +62,7 @@ class VoicePipeline:
         tts: SpeechSynthesizer | None = None,
         wake: PhraseWakeDetector | None = None,
         stream_wake=None,
+        speaker_verifier: SpeakerVerifier | None = None,
         normalizer: TranscriptNormalizer | None = None,
         command_handler: CommandHandler | None = None,
         observer: PipelineObserver | None = None,
@@ -73,6 +78,11 @@ class VoicePipeline:
         self.wake = wake or PhraseWakeDetector(config.activation.wake_word)
         self.stream_wake = stream_wake if stream_wake is not None else build_stream_wake_detector(
             config.wake_word, logger
+        )
+        self.speaker_verifier = (
+            speaker_verifier
+            if speaker_verifier is not None
+            else build_speaker_verifier(config, logger)
         )
         self.normalizer = normalizer or TranscriptNormalizer(config.normalization)
         self.persona = PersonaController(config.persona)
@@ -272,7 +282,98 @@ class VoicePipeline:
             wake_backend = "none"
 
         response_text: str | None = None
+        speaker_verified: bool | None = None
+        speaker_score: float | None = None
+        speaker_reason: str | None = None
         if matched_wake_word:
+            if self.speaker_verifier is not None:
+                speaker_result = await asyncio.to_thread(
+                    self.speaker_verifier.verify,
+                    samples,
+                    self.config.audio.sample_rate_hz,
+                )
+                recorder.mark("speaker_verified")
+                speaker_verified = speaker_result.accepted
+                speaker_score = speaker_result.score
+                speaker_reason = speaker_result.reason
+                log_event(
+                    self.logger,
+                    "speaker_verification_completed",
+                    accepted=speaker_result.accepted,
+                    score=(
+                        None if speaker_result.score is None else round(speaker_result.score, 4)
+                    ),
+                    threshold=round(speaker_result.threshold, 4),
+                    backend=speaker_result.backend,
+                    reason=speaker_result.reason,
+                    mode=self.config.speaker.mode,
+                )
+                self._emit_observer(
+                    "speaker_verification_completed",
+                    accepted=speaker_result.accepted,
+                    score=(
+                        None if speaker_result.score is None else round(speaker_result.score, 4)
+                    ),
+                    threshold=round(speaker_result.threshold, 4),
+                    backend=speaker_result.backend,
+                    reason=speaker_result.reason,
+                    mode=self.config.speaker.mode,
+                )
+                if not speaker_result.accepted and self.config.speaker.mode == "enforce":
+                    self.status.state = AssistantState.ARMED
+                    self._follow_up_deadline = 0.0
+                    self.status.last_transcript = normalized_transcript
+                    self.status.last_response = ""
+                    metrics = recorder.to_deltas_ms()
+                    log_event(
+                        self.logger,
+                        "utterance_processed",
+                        raw_transcript=raw_transcript,
+                        transcript=normalized_transcript,
+                        matched_wake_word=matched_wake_word,
+                        command_text=command_text,
+                        response_text=None,
+                        metrics=metrics,
+                        speaker_verified=speaker_verified,
+                        speaker_score=(
+                            None if speaker_score is None else round(speaker_score, 4)
+                        ),
+                        speaker_reason=speaker_reason,
+                    )
+                    processed = ProcessedUtterance(
+                        raw_transcript,
+                        normalized_transcript,
+                        matched_wake_word,
+                        command_text,
+                        None,
+                        metrics,
+                        capture_mode,
+                        wake_backend,
+                        self.asr.device_in_use or "unknown",
+                        speaker_verified=speaker_verified,
+                        speaker_score=speaker_score,
+                        speaker_reason=speaker_reason,
+                    )
+                    self._emit_observer(
+                        "utterance_processed",
+                        raw_transcript=processed.raw_transcript,
+                        transcript=processed.transcript,
+                        matched_wake_word=processed.matched_wake_word,
+                        command_text=processed.command_text,
+                        response_text="",
+                        metrics=processed.metrics,
+                        capture_mode=processed.capture_mode,
+                        wake_backend=processed.wake_backend,
+                        asr_device=processed.asr_device,
+                        speaker_verified=processed.speaker_verified,
+                        speaker_score=(
+                            None
+                            if processed.speaker_score is None
+                            else round(processed.speaker_score, 4)
+                        ),
+                        speaker_reason=processed.speaker_reason,
+                    )
+                    return processed
             self.status.state = AssistantState.THINKING
             response_text = await self._build_response(command_text)
             recorder.mark("response_ready")
@@ -296,6 +397,9 @@ class VoicePipeline:
             command_text=command_text,
             response_text=response_text,
             metrics=metrics,
+            speaker_verified=speaker_verified,
+            speaker_score=None if speaker_score is None else round(speaker_score, 4),
+            speaker_reason=speaker_reason,
         )
         processed = ProcessedUtterance(
             raw_transcript,
@@ -307,6 +411,9 @@ class VoicePipeline:
             capture_mode,
             wake_backend,
             self.asr.device_in_use or "unknown",
+            speaker_verified=speaker_verified,
+            speaker_score=speaker_score,
+            speaker_reason=speaker_reason,
         )
         self._emit_observer(
             "utterance_processed",
@@ -319,6 +426,11 @@ class VoicePipeline:
             capture_mode=processed.capture_mode,
             wake_backend=processed.wake_backend,
             asr_device=processed.asr_device,
+            speaker_verified=processed.speaker_verified,
+            speaker_score=(
+                None if processed.speaker_score is None else round(processed.speaker_score, 4)
+            ),
+            speaker_reason=processed.speaker_reason,
         )
         return processed
 

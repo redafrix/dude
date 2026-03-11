@@ -38,6 +38,21 @@ class _FakeTts:
         return SpeechResult(samples=samples, sample_rate_hz=16000, backend="fake")
 
 
+class _FakeSpeakerVerifier:
+    def __init__(self, accepted: bool) -> None:
+        self.accepted = accepted
+
+    def verify(self, samples: np.ndarray, sample_rate_hz: int):
+        del samples, sample_rate_hz
+        return SimpleNamespace(
+            accepted=self.accepted,
+            score=0.91 if self.accepted else 0.04,
+            threshold=0.25,
+            backend="fake_speaker",
+            reason="matched" if self.accepted else "below_threshold",
+        )
+
+
 def test_eval_pipeline_replays_fixture_through_pipeline(
     tmp_path: Path,
     monkeypatch,
@@ -174,3 +189,49 @@ cases:
     assert payload["transcript_pass_count"] == 1
     result = payload["results"][0]
     assert result["utterances"][0]["transcript"].endswith("alpha - 2 + 3")
+
+
+def test_eval_pipeline_tracks_speaker_expectations(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = load_config(Path("configs/default.yaml"))
+    config.speaker.enabled = True
+    config.speaker.mode = "enforce"
+    config.vad.min_silence_ms = 120
+    fixture = tmp_path / "hello.wav"
+    samples = np.concatenate(
+        [
+            np.ones(int(config.audio.sample_rate_hz * 0.35), dtype=np.float32) * 0.2,
+            np.zeros(int(config.audio.sample_rate_hz * 0.35), dtype=np.float32),
+        ]
+    )
+    sf.write(fixture, samples, config.audio.sample_rate_hz)
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        f"""
+cases:
+  - id: hello
+    scenario: greeting
+    path: {fixture}
+    expected_wake: true
+    expected_speaker_match: false
+""".strip(),
+        encoding="utf-8",
+    )
+
+    fake_asr = _FakeAsr(["Dude, hello"])
+    monkeypatch.setattr("dude.eval.FasterWhisperBackend", lambda config, logger: fake_asr)
+    monkeypatch.setattr("dude.eval.SpeechSynthesizer", lambda config, logger: _FakeTts())
+    monkeypatch.setattr(
+        "dude.pipeline.build_speaker_verifier",
+        lambda config, logger: _FakeSpeakerVerifier(False),
+    )
+
+    payload = asyncio.run(
+        evaluate_pipeline(config, manifest, logging.getLogger("test"), realtime=False)
+    )
+
+    assert payload["speaker_expected_count"] == 1
+    assert payload["speaker_pass_count"] == 1
+    assert payload["results"][0]["utterances"][0]["speaker_verified"] is False

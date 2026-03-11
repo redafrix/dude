@@ -3,6 +3,7 @@ cases:
     scenario: greeting
     path: ../generated/wake-hello-01.wav
     expected_wake: true
+    expected_speaker_match: true
     expected_transcript_contains:
       - dude
       - hello
@@ -13,6 +14,7 @@ cases:
     scenario: control
     path: ../generated/wake-stop-01.wav
     expected_wake: true
+    expected_speaker_match: true
     expected_transcript_contains:
       - dude
       - stop
@@ -23,15 +25,18 @@ cases:
     scenario: idle_noise
     path: ../generated/idle-noise-01.wav
     expected_wake: false
+    expected_speaker_match: false
 
   - id: barge-in-01
     scenario: barge_in
     path: ../generated/barge-in-01.wav
     expected_wake: true
+    expected_speaker_match: true
 
   - id: coding-math-01
     scenario: coding_math
     path: ../generated/coding-math-01.wav
     expected_wake: true
+    expected_speaker_match: true
     expected_transcript_contains:
       - alpha - 2 + 3

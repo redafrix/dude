@@ -16,6 +16,8 @@ Recommended workflow:
 ```bash
 dude --config configs/default.yaml record-fixture --seconds 4 --output fixtures/generated/wake-hello-01.wav
 dude --config configs/default.yaml record-corpus --output-dir fixtures/generated/m1-core --profile m1-core
+dude --config configs/default.yaml build-speaker-profile --manifest fixtures/enrollment/reda/manifest.yaml --output runtime/reda-speaker.json
+dude --config configs/default.yaml eval-speaker --manifest fixtures/manifests/m1-template.yaml --profile runtime/reda-speaker.json
 dude --config configs/default.yaml eval-fixtures --manifest fixtures/manifests/m1-template.yaml
 dude --config configs/default.yaml eval-pipeline --manifest fixtures/manifests/m1-template.yaml
 ```
@@ -30,9 +32,13 @@ Recommended manifest fields:
 - `path`
 - `scenario`
 - `expected_wake`
+- `expected_speaker_match`
 - `expected_transcript_contains`
 - `expected_response_contains`
 
 `expected_transcript_contains` is matched against the normalized transcript output, not the raw ASR string.
+
+`expected_speaker_match` is optional and is used by `eval-speaker` and the pipeline replay
+evaluation when speaker verification is enabled.
 
 Start with 10 to 20 recordings per scenario before drawing conclusions about wake false rejects or transcript quality.

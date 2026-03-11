@@ -51,7 +51,7 @@ The default runtime config is [`configs/default.yaml`](/home/redafrix/tests/dude
 Optional speech extras:
 
 ```bash
-uv sync --extra dev --extra tts --extra wake --extra vad
+uv sync --extra dev --extra tts --extra wake --extra vad --extra speaker
 ```
 
 Optional browser automation extra:
@@ -77,6 +77,7 @@ Notes:
 - `--extra vad` installs `silero-vad`.
 - `--extra browser` installs Playwright for richer browser control.
 - `--extra cuda_asr` installs the CUDA 12 runtime wheels needed by `faster-whisper` on this machine.
+- `--extra speaker` installs the optional speaker-verification backend.
 - The runtime still works without either extra by falling back to energy VAD and transcript-gated wake handling.
 - `openWakeWord` currently requires an explicit `wake_word.model_path`; the package wheel on this machine did not ship a ready-to-use default keyword model.
 
@@ -103,8 +104,10 @@ Fixture workflow:
 ```bash
 dude --config configs/default.yaml record-fixture --seconds 4 --output fixtures/generated/wake-hello.wav
 dude --config configs/default.yaml record-wake-enrollment --output-dir fixtures/enrollment/reda
+dude --config configs/default.yaml build-speaker-profile --manifest fixtures/enrollment/reda/manifest.yaml --output runtime/reda-speaker.json
 dude --config configs/default.yaml record-corpus --output-dir fixtures/generated/m1-core --profile m1-core
 dude --config configs/default.yaml eval-fixtures --manifest fixtures/manifests/m1-template.yaml
+dude --config configs/default.yaml eval-speaker --manifest fixtures/manifests/m1-template.yaml --profile runtime/reda-speaker.json
 dude --config configs/default.yaml eval-pipeline --manifest fixtures/manifests/m1-template.yaml
 ```
 
@@ -171,6 +174,7 @@ Telegram uses the same task router, approvals, memory store, and reply-audio pat
 - Offline fixture evaluation for wake/transcript checks
 - Replayable end-to-end pipeline evaluation through the real runtime path
 - wake enrollment recording workflow for personalized wake-word datasets
+- speaker-profile build and optional "my voice only" verification gate
 - SQLite-backed task audit log
 - Approval-classified task routing for text requests
 - deterministic local launch bootstrap for terminal, files, downloads, browser, and Discord

@@ -20,6 +20,7 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
   - guided corpus recording workflow
   - component eval runner
   - end-to-end pipeline replay eval
+  - speaker profile build and speaker-match eval flow
 - Transcript intelligence foundation:
   - deterministic normalization for coding/math/shell-style phrases
 - Orchestration foundation:
@@ -78,7 +79,12 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
   - transcript-gated wake works
   - dedicated `openWakeWord` path exists in config/eval
   - enrollment recording workflow now exists
+  - speaker profile building from enrollment now exists
   - real wake-word benchmarking corpus is still missing
+- Speaker verification:
+  - optional local speaker profile build now exists
+  - optional runtime "my voice only" enforcement now exists
+  - threshold tuning against real positive/negative recordings is still missing
 - STT quality:
   - baseline works
   - deterministic normalization exists
@@ -118,7 +124,6 @@ This file tracks the original project brief in [`prompt_what_i_want.md`](/home/r
 ## Not Done Yet
 
 - Personalized wake-word training from enrollment data
-- Speaker verification / “my voice only” mode
 - Real recorded wake false-accept / false-reject benchmark corpus
 - Android APK
 - WebRTC live conversation / live screen share

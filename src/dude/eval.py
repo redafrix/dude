@@ -20,6 +20,7 @@ from dude.events import AssistantState, AssistantStatus
 from dude.metrics import collect_resource_snapshot, write_benchmark_result
 from dude.normalize import TranscriptNormalizer
 from dude.pipeline import VoicePipeline
+from dude.speaker import build_speaker_profile, verify_speaker_fixture
 from dude.wake import PhraseWakeDetector, build_stream_wake_detector
 
 
@@ -29,6 +30,7 @@ class FixtureCase:
     path: Path
     scenario: str = "generic"
     expected_wake: bool | None = None
+    expected_speaker_match: bool | None = None
     expected_transcript_contains: list[str] = field(default_factory=list)
     expected_response_contains: list[str] = field(default_factory=list)
 
@@ -40,6 +42,7 @@ class CorpusPrompt:
     spoken_prompt: str
     duration_seconds: float
     expected_wake: bool | None = None
+    expected_speaker_match: bool | None = None
     expected_transcript_contains: list[str] = field(default_factory=list)
     expected_response_contains: list[str] = field(default_factory=list)
 
@@ -51,6 +54,7 @@ M1_CORE_CORPUS: list[CorpusPrompt] = [
         spoken_prompt="Dude, hello",
         duration_seconds=3.5,
         expected_wake=True,
+        expected_speaker_match=True,
         expected_transcript_contains=["dude", "hello"],
         expected_response_contains=["hi"],
     ),
@@ -60,6 +64,7 @@ M1_CORE_CORPUS: list[CorpusPrompt] = [
         spoken_prompt="Dude, stop",
         duration_seconds=3.5,
         expected_wake=True,
+        expected_speaker_match=True,
         expected_transcript_contains=["dude", "stop"],
         expected_response_contains=["stopping"],
     ),
@@ -69,6 +74,7 @@ M1_CORE_CORPUS: list[CorpusPrompt] = [
         spoken_prompt="Dude, alpha minus two plus three",
         duration_seconds=4.5,
         expected_wake=True,
+        expected_speaker_match=True,
         expected_transcript_contains=["alpha - 2 + 3"],
     ),
     CorpusPrompt(
@@ -77,6 +83,7 @@ M1_CORE_CORPUS: list[CorpusPrompt] = [
         spoken_prompt="Dude, open the browser and show me the page",
         duration_seconds=5.0,
         expected_wake=True,
+        expected_speaker_match=True,
         expected_transcript_contains=["open the browser", "show me the page"],
     ),
     CorpusPrompt(
@@ -85,6 +92,7 @@ M1_CORE_CORPUS: list[CorpusPrompt] = [
         spoken_prompt="Dude, go download Discord",
         duration_seconds=5.0,
         expected_wake=True,
+        expected_speaker_match=True,
         expected_transcript_contains=["download", "discord"],
     ),
     CorpusPrompt(
@@ -93,6 +101,7 @@ M1_CORE_CORPUS: list[CorpusPrompt] = [
         spoken_prompt="Stay silent and capture desk/background noise only.",
         duration_seconds=15.0,
         expected_wake=False,
+        expected_speaker_match=False,
     ),
 ]
 
@@ -132,6 +141,7 @@ def load_fixture_manifest(path: Path) -> list[FixtureCase]:
                 path=fixture_path,
                 scenario=str(item.get("scenario", "generic")),
                 expected_wake=item.get("expected_wake"),
+                expected_speaker_match=item.get("expected_speaker_match"),
                 expected_transcript_contains=[str(part).lower() for part in transcript_contains],
                 expected_response_contains=[str(part).lower() for part in response_contains],
             )
@@ -243,6 +253,8 @@ async def record_scenario_corpus(
                 "path": output_path.name,
                 "expected_wake": prompt.expected_wake,
             }
+            if prompt.expected_speaker_match is not None:
+                case["expected_speaker_match"] = prompt.expected_speaker_match
             if prompt.expected_transcript_contains:
                 case["expected_transcript_contains"] = list(prompt.expected_transcript_contains)
             if prompt.expected_response_contains:
@@ -468,6 +480,8 @@ async def evaluate_pipeline(
     transcript_pass_count = 0
     response_expected_count = 0
     response_pass_count = 0
+    speaker_expected_count = 0
+    speaker_pass_count = 0
     barge_in_case_count = 0
     barge_in_detected_count = 0
     scenario_summary: dict[str, dict[str, int]] = {}
@@ -531,6 +545,19 @@ async def evaluate_pipeline(
             if response_ok:
                 response_pass_count += 1
 
+        speaker_ok: bool | None = None
+        speaker_matches = [
+            item.get("speaker_verified")
+            for item in utterances
+            if item.get("speaker_verified") is not None
+        ]
+        if case.expected_speaker_match is not None:
+            speaker_expected_count += 1
+            actual_speaker_match = bool(speaker_matches[-1]) if speaker_matches else False
+            speaker_ok = actual_speaker_match == case.expected_speaker_match
+            if speaker_ok:
+                speaker_pass_count += 1
+
         if case.scenario == "barge_in":
             barge_in_case_count += 1
             if observer.barge_in_events:
@@ -554,6 +581,7 @@ async def evaluate_pipeline(
                 "utterances": utterances,
                 "transcript_ok": transcript_ok,
                 "response_ok": response_ok,
+                "speaker_ok": speaker_ok,
                 "barge_in_detected": bool(observer.barge_in_events),
                 "barge_in_events": observer.barge_in_events,
                 "playback": sink.records,
@@ -571,6 +599,8 @@ async def evaluate_pipeline(
         "transcript_pass_count": transcript_pass_count,
         "response_expected_count": response_expected_count,
         "response_pass_count": response_pass_count,
+        "speaker_expected_count": speaker_expected_count,
+        "speaker_pass_count": speaker_pass_count,
         "barge_in_case_count": barge_in_case_count,
         "barge_in_detected_count": barge_in_detected_count,
         "scenario_summary": scenario_summary,
@@ -582,3 +612,65 @@ async def evaluate_pipeline(
 def write_named_report(output_path: Path, payload: dict[str, Any]) -> Path:
     write_benchmark_result(output_path, payload)
     return output_path
+
+
+def build_speaker_profile_report(
+    config: DudeConfig,
+    logger: logging.Logger,
+    manifest_path: Path,
+    output_path: Path,
+    *,
+    threshold: float | None = None,
+) -> dict[str, object]:
+    payload = build_speaker_profile(
+        config,
+        logger,
+        manifest_path,
+        output_path,
+        threshold=threshold,
+    )
+    payload["resources"] = collect_resource_snapshot()
+    return payload
+
+
+def evaluate_speaker_profile(
+    config: DudeConfig,
+    manifest_path: Path,
+    logger: logging.Logger,
+    *,
+    profile_path: Path,
+) -> dict[str, object]:
+    cases = load_fixture_manifest(manifest_path)
+    results: list[dict[str, object]] = []
+    expected_count = 0
+    pass_count = 0
+
+    for case in cases:
+        verification = verify_speaker_fixture(config, logger, profile_path, case.path)
+        accepted = bool(verification["accepted"])
+        match_ok: bool | None = None
+        if case.expected_speaker_match is not None:
+            expected_count += 1
+            match_ok = accepted == case.expected_speaker_match
+            if match_ok:
+                pass_count += 1
+        results.append(
+            {
+                "id": case.fixture_id,
+                "scenario": case.scenario,
+                "path": str(case.path),
+                "expected_speaker_match": case.expected_speaker_match,
+                "speaker_match_ok": match_ok,
+                **verification,
+            }
+        )
+
+    return {
+        "manifest_path": str(manifest_path),
+        "profile_path": str(profile_path),
+        "case_count": len(results),
+        "speaker_expected_count": expected_count,
+        "speaker_pass_count": pass_count,
+        "results": results,
+        "resources": collect_resource_snapshot(),
+    }
