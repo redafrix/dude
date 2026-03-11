@@ -1,0 +1,106 @@
+runtime:
+  state_dir: "../runtime"
+  log_dir: "../logs"
+  control_socket_path: "../runtime/control.sock"
+  benchmark_output_dir: "../benchmarks/results"
+  audit_db_path: "../runtime/dude.db"
+
+audio:
+  input_device: null
+  output_device: null
+  sample_rate_hz: 16000
+  block_duration_ms: 80
+  channels: 1
+  max_request_seconds: 12
+  pre_roll_seconds: 1.2
+  post_speech_seconds: 0.8
+  barge_in_grace_ms: 180
+
+activation:
+  hotkey_hint: "Alt+A"
+  wake_word: "dude"
+  greeting_text: "Hi, what can I help you with?"
+
+vad:
+  threshold: 0.55
+  min_silence_ms: 600
+  speech_pad_ms: 250
+
+wake_word:
+  backend: "transcript"
+  model_name: "dude"
+  model_path: null
+  threshold: 0.5
+  trigger_cooldown_ms: 1600
+
+asr:
+  provider: "faster_whisper"
+  model_name: "distil-small.en"
+  device: "auto"
+  language: "en"
+
+tts:
+  provider: "kokoro"
+  voice: "af_heart"
+  sample_rate_hz: 24000
+  speed: 1.0
+  fallback_to_tone: true
+  speechd_output_module: null
+  speechd_language: "en"
+
+normalization:
+  enabled: true
+  format_numbers: true
+  format_symbols: true
+
+orchestrator:
+  default_backend: "auto"
+  codex_model: null
+  gemini_model: null
+  codex_sandbox: "workspace-write"
+  task_timeout_seconds: 600
+  gemini_plan_only: true
+
+browser:
+  preferred_engine: "playwright"
+  executable_path: null
+  artifact_dir: "../runtime/browser"
+  default_url: "https://example.com"
+  headless_by_default: true
+  viewport_width: 1440
+  viewport_height: 1024
+  navigation_timeout_ms: 15000
+  settle_time_ms: 750
+
+remote:
+  enabled: false
+  bind_host: "127.0.0.1"
+  port: 8765
+  auth_token: null
+  auth_token_path: "../runtime/remote-api.token"
+
+screen:
+  artifact_dir: "../runtime/screen"
+  display: null
+  framerate: 12
+  default_clip_seconds: 6.0
+  screenshot_timeout_seconds: 10
+  record_timeout_seconds: 20
+
+telegram:
+  enabled: false
+  bot_token: null
+  allowed_chat_ids: []
+  poll_timeout_seconds: 30
+  voice_replies: true
+
+memory:
+  enabled: true
+  max_entries: 200
+  summary_max_chars: 280
+
+benchmark:
+  idle_false_accept_window_seconds: 1800
+  warm_target_first_audio_ms: 1500
+  cold_target_first_audio_ms: 3000
+  barge_in_target_ms: 250

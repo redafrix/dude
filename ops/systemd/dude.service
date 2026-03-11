@@ -1,0 +1,13 @@
+[Unit]
+Description=Dude voice assistant service
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/tests/dude
+ExecStart=%h/tests/dude/.venv/bin/dude --config %h/tests/dude/configs/default.yaml serve --warmup
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

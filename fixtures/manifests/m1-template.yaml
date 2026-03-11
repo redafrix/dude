@@ -1,0 +1,37 @@
+cases:
+  - id: wake-hello-01
+    scenario: greeting
+    path: ../generated/wake-hello-01.wav
+    expected_wake: true
+    expected_transcript_contains:
+      - dude
+      - hello
+    expected_response_contains:
+      - hi
+
+  - id: wake-stop-01
+    scenario: control
+    path: ../generated/wake-stop-01.wav
+    expected_wake: true
+    expected_transcript_contains:
+      - dude
+      - stop
+    expected_response_contains:
+      - stopping
+
+  - id: idle-noise-01
+    scenario: idle_noise
+    path: ../generated/idle-noise-01.wav
+    expected_wake: false
+
+  - id: barge-in-01
+    scenario: barge_in
+    path: ../generated/barge-in-01.wav
+    expected_wake: true
+
+  - id: coding-math-01
+    scenario: coding_math
+    path: ../generated/coding-math-01.wav
+    expected_wake: true
+    expected_transcript_contains:
+      - alpha - 2 + 3
